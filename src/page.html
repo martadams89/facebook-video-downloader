@@ -127,7 +127,11 @@
     <h2>Every time you want a video</h2>
     <div class="step">
       <div class="num">1</div>
-      <div>Open the Facebook post so the video is on screen, and let it start playing for a second.</div>
+      <div>
+        <b>Open the post in its own tab.</b> Right-click it in the group and choose
+        <b>Open link in new tab</b>. A freshly opened post always has the video ready;
+        one you clicked through to inside Facebook often does not.
+      </div>
     </div>
     <div class="step">
       <div class="num">2</div>
@@ -397,7 +401,7 @@ function buildBookmarklet(origin) {
     // about 900ms after an in-app navigation.
     'var done=false;send(has(),false);',
     'var iv=setInterval(function(){if(done)return;if(has()){done=true;clearInterval(iv);send(true,true)}},500);',
-    'setTimeout(function(){if(!done){done=true;clearInterval(iv);send(has(),true)}},20000);',
+    'setTimeout(function(){if(!done){done=true;clearInterval(iv);send(has(),true)}},6000);',
     'window.addEventListener("message",function(e){if(e.origin!==O||!e.data)return;',
     'if(e.data.fbgrabReady)send(has(),done);',
     'if(e.data.fbgrabRetry){done=false;clearInterval(iv);',
@@ -419,6 +423,8 @@ function buildBookmarklet(origin) {
 var FB_ORIGIN = /^https:\/\/([a-z0-9-]+\.)*facebook\.com$/;
 var lastPayloadStamp = null;
 var lastPageUrl = null;
+var lastVid = null;
+var reloadTried = false;
 var watchdog = null;
 
 // Whatever goes wrong on the Facebook side - a frozen tab, a lost message,
@@ -451,6 +457,7 @@ window.addEventListener('message', function (ev) {
   lastPayloadStamp = stamp;
 
   lastPageUrl = String(p.page || '') || lastPageUrl;
+  lastVid = p.vid || lastVid;
   var net = Array.isArray(p.net) ? p.net.map(String).join('\n') : '';
   handle(html + '\n' + net, String(p.page || ''), p.ready !== false, p.fin === true);
 });
@@ -570,9 +577,23 @@ function handle(html, pageUrl, ready, isFinal) {
     // so this must not read like a failure.
     say('Still looking for this post\u2019s video\u2026 anything below is from other posts for now.', 'warn');
   } else if (found.targetKnown && noOwnVideo) {
-    sayWithRetry(anyVideo
-      ? 'This post\u2019s video did not load, so it is not in the list. Any videos below belong to posts you viewed earlier, not this one.'
-      : 'This post\u2019s video did not load.');
+    // Browsing around inside Facebook leaves posts whose video was never
+    // delivered to the page - measured on one: 8.2MB of HTML and not a single
+    // media URL anywhere in it. Loading that same post's own address fixes it
+    // every time, so just do that rather than asking her to fiddle.
+    if (fromBookmarklet && lastVid && !reloadTried) {
+      reloadTried = true;
+      var dest = 'https://www.facebook.com/watch/?v=' + encodeURIComponent(lastVid);
+      var ok = false;
+      try { window.opener.location.href = dest; ok = true; } catch (e) {}
+      say(ok
+        ? 'Facebook had not loaded this post\u2019s video, so the Facebook tab has been reloaded on the post itself. Switch to it and click Save this video again \u2014 it works on a freshly loaded post.'
+        : 'Facebook had not loaded this post\u2019s video. Reload the Facebook tab, then click Save this video again.', 'warn');
+    } else {
+      sayWithRetry(anyVideo
+        ? 'This post\u2019s video did not load, so it is not in the list. Any videos below belong to posts you viewed earlier, not this one.'
+        : 'This post\u2019s video did not load.');
+    }
   } else if (!found.targetKnown && !anyVideo) {
     sayWithRetry('Photos only \u2014 no video was loaded on that page.');
   }
