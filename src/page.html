@@ -374,11 +374,23 @@ function buildBookmarklet(origin) {
     'if(!id)return true;RX.lastIndex=0;var m;',
     'while((m=RX.exec(h))!==null){var a=h.lastIndexOf(id,m.index);',
     'if(a!==-1&&a>m.index-2500)return true}return false}',
+    // A Facebook tab accumulates state as you browse: this was measured at
+    // 14.6MB, and blindly truncating it to 6MB threw away every media URL on
+    // the page - the payload arrived gutted and the page waited forever for
+    // data it had already been sent. Keep a window around each relevant
+    // token instead, merging overlaps: same 6 URLs recovered, 740KB not
+    // 14.6MB, and 17ms to build.
+    'function red(h){if(h.length<=6000000)return h;var ix=[],',
+    'rx=/progressive_url|scontent[a-z0-9.\\-]{0,24}\\.fbcdn\\.net/g,m;',
+    'while((m=rx.exec(h))!==null){ix.push(m.index);if(ix.length>8000)break}',
+    'var o=[],s=-1,e=-1;for(var i=0;i<ix.length;i++){var a=Math.max(0,ix[i]-3000),',
+    'b=Math.min(h.length,ix[i]+3000);if(s===-1){s=a;e=b}else if(a<=e){e=Math.max(e,b)}',
+    'else{o.push(h.slice(s,e));s=a;e=b}}if(s!==-1)o.push(h.slice(s,e));return o.join("\\n")}',
     'function send(ok,fin){var h=document.documentElement.outerHTML;var r=[];',
     'try{r=performance.getEntriesByType("resource").map(function(e){return e.name})',
     '.filter(function(n){return /fbcdn\\.net\\//i.test(n)&&(/^https:\\/\\/video/i.test(n)',
     '||/\\.(?:mp4|webm)(?:[?&]|$)/i.test(n)||/\\/v\\/t42\\.|\\/o1\\/v\\//i.test(n))})}catch(e){}',
-    'try{w.postMessage({fbgrab:1,payload:{html:h.slice(0,6000000),net:r.slice(0,40),',
+    'try{w.postMessage({fbgrab:1,payload:{html:red(h),net:r.slice(0,40),',
     'page:location.href,ready:ok,fin:!!fin,vid:id}},O)}catch(e){}}',
     // Send at once so the page has something and knows which post this is,
     // then upgrade the moment this video's own media shows up - measured at
@@ -407,6 +419,22 @@ function buildBookmarklet(origin) {
 var FB_ORIGIN = /^https:\/\/([a-z0-9-]+\.)*facebook\.com$/;
 var lastPayloadStamp = null;
 var lastPageUrl = null;
+var watchdog = null;
+
+// Whatever goes wrong on the Facebook side - a frozen tab, a lost message,
+// a payload with nothing usable in it - this page must end up saying
+// something actionable rather than spinning on "Looking for the video".
+function armWatchdog() {
+  clearTimeout(watchdog);
+  watchdog = setTimeout(function () {
+    if ($('waiting').classList.contains('hide')) return;
+    $('waiting').classList.add('hide');
+    if (!document.querySelectorAll('#items .item').length) {
+      $('results').classList.add('hide');
+    }
+    sayWithRetry('Facebook did not hand over anything saveable for this post.');
+  }, 12000);
+}
 
 window.addEventListener('message', function (ev) {
   if (!FB_ORIGIN.test(ev.origin)) return;
@@ -430,6 +458,7 @@ window.addEventListener('message', function (ev) {
 if (fromBookmarklet) {
   $('setup').classList.add('hide');
   $('waiting').classList.remove('hide');
+  armWatchdog();
 }
 
 // Tell the opener we are ready to receive, so it does not have to guess.
@@ -525,6 +554,7 @@ function handle(html, pageUrl, ready, isFinal) {
     $('results').classList.add('hide');
     if (isFinal === false) {
       $('waiting').classList.remove('hide');
+      armWatchdog();
     } else {
       sayWithRetry('Nothing found on that page. Press play on the video, then look again.');
     }
@@ -534,6 +564,7 @@ function handle(html, pageUrl, ready, isFinal) {
   $('waiting').classList.toggle('hide', !stillLooking);
 
   if (stillLooking) {
+    armWatchdog();
     // An interim result. Facebook usually publishes the video about a second
     // after the post appears, and an upgraded payload is already on its way,
     // so this must not read like a failure.
@@ -581,6 +612,8 @@ function render(found, id) {
     if (mode === 'photos') return item.kind === 'Photo';
     return i < 3;
   }
+
+  clearTimeout(watchdog);
 
   found.forEach(function (item, i) {
     var lead = isLead(item, i);
