@@ -354,58 +354,45 @@ function buildBookmarklet(origin) {
   var code = [
     'javascript:(function(){try{',
     'var O=' + O + ';',
+    // Open synchronously, inside the click. Deferring this behind any wait -
+    // even a few hundred milliseconds - loses the user gesture and Chrome
+    // blocks the pop-up. The window is named so clicking again reuses the
+    // same tab instead of leaving a trail of them.
+    'var w=window.open(O+"/","fbsaver");',
+    'if(!w){alert("Pop-ups are blocked for Facebook. Allow them (the icon at the right of the address bar), then click the bookmark again.");return}',
+    'try{w.focus()}catch(e){}',
     'var id=(location.href.match(/[?&]v=(\\d{6,})/)||location.href.match(/\\/videos\\/(?:[a-z]+\\.\\d+\\/)?(\\d{6,})/)||location.href.match(/\\/reel\\/(\\d{6,})/)||location.href.match(/\\/watch\\/(\\d{6,})/)||[])[1]||null;',
-    // Start the biggest player. Facebook only writes the media URLs into the
-    // page once the video initialises, and this is a real user gesture, so
-    // playback is allowed.
     'try{var vs=[].slice.call(document.querySelectorAll("video"));',
     'vs.sort(function(a,b){var x=a.getBoundingClientRect(),y=b.getBoundingClientRect();return y.width*y.height-x.width*x.height});',
     'if(vs[0]&&vs[0].paused){vs[0].muted=true;var q=vs[0].play();if(q&&q.catch)q.catch(function(){})}}catch(e){}',
     'var RX=/\\\\?"progressive_url\\\\?"\\s*:\\s*\\\\?"https/g;',
-    // Facebook is a single-page app and never clears the previous post's
-    // payload, so "is there any progressive_url?" is already true the moment
-    // you arrive at a second video - and the answer it gives is the video you
-    // were looking at before. Measured on a real tab: six URLs present, none
-    // of them belonging to the post on screen. So require one that belongs to
-    // THIS video, falling back to any only when the URL carries no id.
+    // Facebook keeps the previous post's payload in the page, so "any
+    // progressive_url" is true immediately and answers with the wrong video.
+    // Require one belonging to THIS video.
     'function has(){var h=document.documentElement.outerHTML;',
     'if(h.indexOf("progressive_url")===-1)return false;',
-    'if(!id)return true;',
-    'RX.lastIndex=0;var m;',
+    'if(!id)return true;RX.lastIndex=0;var m;',
     'while((m=RX.exec(h))!==null){var a=h.lastIndexOf(id,m.index);',
-    'if(a!==-1&&a>m.index-2500)return true}',
-    'return false}',
-    'function pay(ok){var h=document.documentElement.outerHTML;var r=[];',
+    'if(a!==-1&&a>m.index-2500)return true}return false}',
+    'function send(ok,fin){var h=document.documentElement.outerHTML;var r=[];',
     'try{r=performance.getEntriesByType("resource").map(function(e){return e.name})',
     '.filter(function(n){return /fbcdn\\.net\\//i.test(n)&&(/^https:\\/\\/video/i.test(n)',
     '||/\\.(?:mp4|webm)(?:[?&]|$)/i.test(n)||/\\/v\\/t42\\.|\\/o1\\/v\\//i.test(n))})}catch(e){}',
-    'return{html:h.slice(0,6000000),net:r.slice(0,40),page:location.href,ready:ok,vid:id}}',
-    'var w=null,data=null,ok2=false;',
-    // The retry timers below are a backstop against a missed ready ping, but
-    // without an acknowledgement they deliver the same multi-megabyte payload
-    // three times, making the page render and re-probe three times over.
-    'function push(){if(!w||!data||ok2)return;try{w.postMessage({fbgrab:1,payload:data},O)}catch(e){}}',
-    // Everything above happens in the focused tab. Opening the results tab
-    // backgrounds this one, and Chrome then FREEZES it - timers stop and no
-    // DOM mutations arrive, so Facebook never finishes loading the video and
-    // nothing here would ever see it. So wait here first, then open. The wait
-    // is capped below Chrome"s ~5s transient-activation window, or the pop-up
-    // would be blocked.
-    'function go(ok){if(w)return;w=window.open(O+"/","_blank");',
-    'if(!w){alert("Allow pop-ups for this site, then click the bookmark again.");return}',
-    'data=pay(ok);',
+    'try{w.postMessage({fbgrab:1,payload:{html:h.slice(0,6000000),net:r.slice(0,40),',
+    'page:location.href,ready:ok,fin:!!fin,vid:id}},O)}catch(e){}}',
+    // Send at once so the page has something and knows which post this is,
+    // then upgrade the moment this video's own media shows up - measured at
+    // about 900ms after an in-app navigation.
+    'var done=false;send(has(),false);',
+    'var iv=setInterval(function(){if(done)return;if(has()){done=true;clearInterval(iv);send(true,true)}},500);',
+    'setTimeout(function(){if(!done){done=true;clearInterval(iv);send(has(),true)}},20000);',
     'window.addEventListener("message",function(e){if(e.origin!==O||!e.data)return;',
-    'if(e.data.fbgrabGot)ok2=true;if(e.data.fbgrabReady)push()});',
-    'setTimeout(push,500);setTimeout(push,1500);setTimeout(push,3000);',
-    // If she goes back to the video, presses play and returns, this tab
-    // thaws and can hand over the media it now has - no second click needed.
-    'document.addEventListener("visibilitychange",function(){if(document.hidden)return;',
-    'setTimeout(function(){if(has()){ok2=false;data=pay(true);push()}},700)});',
-    '}',
-    'var T0=Date.now();',
-    '(function wait(){if(has())return go(true);',
-    'if(Date.now()-T0>3500)return go(false);',
-    'setTimeout(wait,350)})();',
+    'if(e.data.fbgrabReady)send(has(),done);',
+    'if(e.data.fbgrabRetry){done=false;clearInterval(iv);',
+    'iv=setInterval(function(){if(done)return;if(has()){done=true;clearInterval(iv);send(true,true)}},500);',
+    'send(has(),false)}});',
+    'document.addEventListener("visibilitychange",function(){if(document.hidden||done)return;',
+    'setTimeout(function(){if(!done&&has()){done=true;clearInterval(iv);send(true,true)}},600)});',
     '}catch(e){alert("Could not read this page: "+e.message)}})()'
   ].join('');
   return code;
@@ -419,6 +406,7 @@ function buildBookmarklet(origin) {
 // Worker refuses to fetch anything else, and nothing is ever set as HTML.
 var FB_ORIGIN = /^https:\/\/([a-z0-9-]+\.)*facebook\.com$/;
 var lastPayloadStamp = null;
+var lastPageUrl = null;
 
 window.addEventListener('message', function (ev) {
   if (!FB_ORIGIN.test(ev.origin)) return;
@@ -434,8 +422,9 @@ window.addEventListener('message', function (ev) {
   if (stamp === lastPayloadStamp) return;
   lastPayloadStamp = stamp;
 
+  lastPageUrl = String(p.page || '') || lastPageUrl;
   var net = Array.isArray(p.net) ? p.net.map(String).join('\n') : '';
-  handle(html + '\n' + net, String(p.page || ''), p.ready !== false);
+  handle(html + '\n' + net, String(p.page || ''), p.ready !== false, p.fin === true);
 });
 
 if (fromBookmarklet) {
@@ -470,13 +459,38 @@ function sayWithRetry(text) {
   d.className = 'msg warn';
   d.textContent = text + ' ';
   if (fromBookmarklet) {
-    // A backgrounded Facebook tab is frozen, so asking it to look again from
-    // here achieves nothing. Switching back to it thaws it, and the bookmarklet
-    // hands the media over on its own once the video is running.
+    // Facebook does not always publish a downloadable copy of a video into
+    // the page as you browse - on a feed, or after moving around in the app,
+    // it may play through a streaming format that leaves nothing to grab. A
+    // fresh load of the post's own page reliably does publish it, verified on
+    // several posts, so offer exactly that rather than vague advice.
     var hint = document.createElement('div');
     hint.style.marginTop = '8px';
-    hint.textContent = 'Switch back to the Facebook tab, press play on the video, then come back here \u2014 this page fills in by itself.';
+    hint.textContent = 'Facebook has not published a saveable copy on that page. Reloading the post usually fixes it:';
     d.appendChild(hint);
+
+    var b = document.createElement('button');
+    b.textContent = 'Reload the Facebook tab';
+    b.style.marginTop = '8px';
+    b.onclick = function () {
+      try {
+        // Navigating the opener is allowed across origins even though
+        // reading it is not.
+        window.opener.location.href = lastPageUrl;
+        b.disabled = true;
+        b.textContent = 'Reloaded \u2014 now click the bookmark again';
+      } catch (e) {
+        b.textContent = 'Could not reload it \u2014 refresh the Facebook tab yourself';
+      }
+    };
+    d.appendChild(document.createElement('br'));
+    d.appendChild(b);
+
+    var after = document.createElement('div');
+    after.className = 'hint';
+    after.style.marginTop = '6px';
+    after.textContent = 'Then click Save this video again. A freshly loaded post almost always has the video available.';
+    d.appendChild(after);
   }
   $('messages').appendChild(d);
 }
@@ -501,24 +515,33 @@ function advise(el, text) {
   el.classList.remove('hide');
 }
 
-function handle(html, pageUrl, ready) {
+function handle(html, pageUrl, ready, isFinal) {
   clearMessages();
-  $('waiting').classList.add('hide');
   var found = extract(html, pageUrl);
   var noOwnVideo = !found.some(function (f) { return f.kind === 'Video' && f.primary; });
   var anyVideo = found.some(function (f) { return f.kind === 'Video'; });
 
   if (!found.length) {
-    sayWithRetry('Nothing found on that page yet. Press play on the video, then look again.');
     $('results').classList.add('hide');
+    if (isFinal === false) {
+      $('waiting').classList.remove('hide');
+    } else {
+      sayWithRetry('Nothing found on that page. Press play on the video, then look again.');
+    }
     return;
   }
-  if (found.targetKnown && noOwnVideo) {
-    // Being explicit matters here: there may well be videos in the payload,
-    // but they are last post's, and quietly offering them is the bug.
+  var stillLooking = found.targetKnown && noOwnVideo && isFinal === false;
+  $('waiting').classList.toggle('hide', !stillLooking);
+
+  if (stillLooking) {
+    // An interim result. Facebook usually publishes the video about a second
+    // after the post appears, and an upgraded payload is already on its way,
+    // so this must not read like a failure.
+    say('Still looking for this post\u2019s video\u2026 anything below is from other posts for now.', 'warn');
+  } else if (found.targetKnown && noOwnVideo) {
     sayWithRetry(anyVideo
-      ? 'This post\u2019s video has not loaded yet, so it is not in the list. Any videos below belong to posts you viewed earlier, not this one.'
-      : 'This post\u2019s video has not loaded yet.');
+      ? 'This post\u2019s video did not load, so it is not in the list. Any videos below belong to posts you viewed earlier, not this one.'
+      : 'This post\u2019s video did not load.');
   } else if (!found.targetKnown && !anyVideo) {
     sayWithRetry('Photos only \u2014 no video was loaded on that page.');
   }
