@@ -1,0 +1,17 @@
+{
+  "name": "media-saver",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "observability": { "enabled": true },
+  "rules": [
+    { "type": "Text", "globs": ["**/*.html"], "fallthrough": false }
+  ]
+
+  // When you're ready to put it on the real domain, add a route.
+  // Create the DNS record + custom domain in the dashboard first, or let
+  // wrangler do it by uncommenting this block and running `wrangler deploy`:
+  //
+  // ,"routes": [
+  //   { "pattern": "save.example.com", "custom_domain": true }
+  // ]
+}

@@ -1,0 +1,33 @@
+name: CI
+
+# Fast feedback on every PR/push: run the extractor's fixture tests, then do a
+# real Wrangler bundle (dry run) so a broken worker or a bad wrangler.jsonc
+# fails here rather than at deploy time. No Cloudflare credentials needed.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Extractor tests
+        run: npm test
+      - name: Bundle the Worker
+        run: npm run build

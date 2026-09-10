@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Save a video</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --ink:#1a1d21; --dim:#5f6771; --line:#e2e5ea;
+    --accent:#2563eb; --accent-ink:#fff; --ok:#0f7b42;
+    --ok-bg:#e7f6ec; --warn:#8a5a00; --warn-bg:#fdf3dd; --bad:#a32020; --bad-bg:#fdeaea;
+    --radius:10px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#15171a; --card:#1d2024; --ink:#e9ecef; --dim:#9aa3ad; --line:#2e333a;
+      --accent:#4f8cf7; --accent-ink:#0b0e12;
+      --ok:#6ee7a0; --ok-bg:#16301f; --warn:#f0c674; --warn-bg:#332a12; --bad:#f28b82; --bad-bg:#3a1e1e;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:28px 18px 64px; background:var(--bg); color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  main{max-width:660px; margin:0 auto}
+  h1{font-size:22px; margin:0 0 6px; letter-spacing:-.01em}
+  h2{font-size:15px; margin:0 0 10px; letter-spacing:-.01em}
+  p.lede{margin:0 0 24px; color:var(--dim)}
+  section{
+    background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:18px; margin-bottom:14px;
+  }
+  .step{display:flex; gap:12px; margin:0 0 14px}
+  .step:last-child{margin-bottom:0}
+  .num{
+    flex:0 0 22px; height:22px; border-radius:50%; background:var(--accent);
+    color:var(--accent-ink); font-size:12px; font-weight:600;
+    display:flex; align-items:center; justify-content:center; margin-top:1px;
+  }
+  .step > div + div{flex:1; min-width:0}
+  .step b{font-weight:600}
+  small,.hint{color:var(--dim); font-size:13px}
+  .grab{
+    display:inline-block; padding:9px 18px; background:var(--accent); color:var(--accent-ink);
+    border-radius:8px; font-weight:600; text-decoration:none; cursor:grab; user-select:none;
+    box-shadow:0 1px 2px rgba(0,0,0,.12);
+  }
+  button{
+    font:inherit; padding:8px 14px; border-radius:8px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink); cursor:pointer;
+  }
+  button:hover{border-color:var(--dim)}
+  button.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600}
+  button:disabled{opacity:.5; cursor:default}
+  textarea,input[type=text],input[type=url]{
+    width:100%; font:inherit; padding:9px 11px; border-radius:8px;
+    border:1px solid var(--line); background:var(--bg); color:var(--ink);
+  }
+  textarea{min-height:110px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; resize:vertical}
+  details{border-top:1px solid var(--line); padding-top:12px; margin-top:14px}
+  details summary{cursor:pointer; color:var(--dim); font-size:14px}
+  details > *:not(summary){margin-top:12px}
+  kbd{
+    font:600 11px/1 ui-monospace,Menlo,monospace; border:1px solid var(--line);
+    border-bottom-width:2px; border-radius:4px; padding:3px 5px; background:var(--bg);
+  }
+  .item{border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:10px}
+  .item:last-child{margin-bottom:0}
+  .row{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .row + .row{margin-top:10px}
+  .label{font-weight:600}
+  .badge{font-size:12px; padding:2px 8px; border-radius:99px; font-weight:600}
+  .badge.ok{background:var(--ok-bg); color:var(--ok)}
+  .badge.warn{background:var(--warn-bg); color:var(--warn)}
+  .badge.bad{background:var(--bad-bg); color:var(--bad)}
+  .spacer{flex:1}
+  .thumb{width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid var(--line); background:var(--bg)}
+  .name{flex:1; min-width:170px}
+  .msg{padding:12px 14px; border-radius:8px; margin-bottom:14px; font-size:14px}
+  .msg.bad{background:var(--bad-bg); color:var(--bad)}
+  .msg.warn{background:var(--warn-bg); color:var(--warn)}
+  .bar{height:5px; border-radius:99px; background:var(--line); overflow:hidden; margin-top:8px}
+  .bar > i{display:block; height:100%; width:0; background:var(--accent); transition:width .2s}
+  .hide{display:none}
+  footer{color:var(--dim); font-size:12px; text-align:center; margin-top:26px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Save a video</h1>
+  <p class="lede">Pulls the video or photo out of a Facebook post &mdash; including posts in private groups you&rsquo;re a member of &mdash; and saves it as a file you can attach to a Trello card.</p>
+
+  <div id="messages"></div>
+
+  <section id="results" class="hide">
+    <h2>Found on that post</h2>
+    <div id="items"></div>
+  </section>
+
+  <section id="setup">
+    <h2>One-time set-up</h2>
+    <div class="step">
+      <div class="num">1</div>
+      <div>
+        <b>Show your bookmarks bar</b> if it&rsquo;s hidden: <kbd>&#8984;</kbd><kbd>&#8679;</kbd><kbd>B</kbd> on a Mac, <kbd>Ctrl</kbd><kbd>&#8679;</kbd><kbd>B</kbd> on Windows.
+      </div>
+    </div>
+    <div class="step">
+      <div class="num">2</div>
+      <div>
+        <b>Drag this button up onto the bar.</b> Don&rsquo;t click it here &mdash; it only does something on a Facebook page.
+        <div style="margin:12px 0 4px"><a class="grab" id="bookmarklet" href="#">Save this video</a></div>
+        <small>That&rsquo;s it. You only ever do this once.</small>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Every time you want a video</h2>
+    <div class="step">
+      <div class="num">1</div>
+      <div>Open the Facebook post so the video is on screen, and let it start playing for a second.</div>
+    </div>
+    <div class="step">
+      <div class="num">2</div>
+      <div>Click <b>Save this video</b> in your bookmarks bar.</div>
+    </div>
+    <div class="step">
+      <div class="num">3</div>
+      <div>This page opens with the file listed. Pick <b>Download</b>.</div>
+    </div>
+
+    <details>
+      <summary>The bookmark didn&rsquo;t find anything &mdash; what now?</summary>
+      <p class="hint">Two things usually fix it. First, open the video on its own page rather than in the group feed (click the video, or its timestamp, so the address bar shows a single post). Second, let it play for a couple of seconds before clicking the bookmark.</p>
+      <p class="hint">Still nothing? Paste the page&rsquo;s source instead: right-click a blank part of the Facebook page &rarr; <b>View page source</b>, select all (<kbd>&#8984;</kbd><kbd>A</kbd>), copy (<kbd>&#8984;</kbd><kbd>C</kbd>), and drop it here.</p>
+      <textarea id="src" placeholder="Paste page source here" spellcheck="false"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="scan">Find media</button>
+        <span class="spacer"></span>
+        <small>or drop a saved <b>.html</b> file: <input type="file" id="file" accept=".html,.htm,.txt" style="font-size:12px"></small>
+      </div>
+    </details>
+
+    <details>
+      <summary>Paste a link instead (only works for public posts)</summary>
+      <p class="hint">A link on its own is enough only when the post is public. Anything in a private group has to come from the bookmark or the page source, because this site can&rsquo;t see inside your Facebook account &mdash; and you should never give a website your Facebook password to make it try.</p>
+      <div class="row">
+        <input type="url" id="link" class="name" placeholder="https://www.facebook.com/watch/?v=...">
+        <button id="fetchlink">Look up</button>
+      </div>
+    </details>
+  </section>
+
+  <footer>Only save things you&rsquo;re allowed to keep a copy of.</footer>
+</main>
+
+<script>
+/* ------------------------------------------------------------------ *
+ * Facebook hands out its media as pre-signed fbcdn.net URLs that work
+ * without a login for a few hours. So nothing here ever needs (or wants)
+ * anyone's Facebook credentials: we only ever read a signed URL that the
+ * logged-in browser already has, and stream it back with a filename.
+ * ------------------------------------------------------------------ */
+
+var TRELLO_FREE = 10 * 1024 * 1024;    // per-attachment limit on Trello Free
+var TRELLO_PAID = 250 * 1024 * 1024;   // ...and on the paid plans
+
+/* ---------- extraction (shared by bookmarklet + paste fallback) ---------- */
+
+var VIDEO_KEYS = [
+  ['playable_url_quality_hd', 'Video', 'HD'],
+  ['browser_native_hd_url',   'Video', 'HD'],
+  ['hd_src_no_ratelimit',     'Video', 'HD'],
+  ['hd_src',                  'Video', 'HD'],
+  ['playable_url',            'Video', 'SD'],
+  ['browser_native_sd_url',   'Video', 'SD'],
+  ['sd_src_no_ratelimit',     'Video', 'SD'],
+  ['sd_src',                  'Video', 'SD']
+];
+
+function decode(s) {
+  return s
+    .replace(/\\u([0-9a-fA-F]{4})/g, function (_, h) {
+      return String.fromCharCode(parseInt(h, 16));
+    })
+    .replace(/\\\//g, '/')
+    .replace(/\\"/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x2F;/gi, '/')
+    .trim();
+}
+
+// Strip the byte-range params off a URL grabbed from resource timing, so we
+// ask for the whole file rather than the segment the player happened to want.
+function whole(u) {
+  return u.replace(/[?&]bytestart=\d+/g, '').replace(/[?&]byteend=\d+/g, '');
+}
+
+function extract(html) {
+  var found = [];
+  var seen = {};
+
+  function add(url, kind, quality) {
+    url = whole(decode(url));
+    if (!/^https:\/\/[a-z0-9.\-]*fbcdn\.net\//i.test(url)) return;
+    // Same file re-signed twice is still one file: key on the path.
+    var key;
+    try { key = new URL(url).pathname; } catch (e) { key = url; }
+    if (seen[key]) return;
+    seen[key] = 1;
+    found.push({ url: url, kind: kind, quality: quality });
+  }
+
+  // Facebook's payload is sometimes escaped one extra level deep.
+  var texts = [html];
+  if (html.indexOf('\\"playable_url') !== -1) texts.push(html.replace(/\\"/g, '"'));
+
+  texts.forEach(function (text) {
+    VIDEO_KEYS.forEach(function (spec) {
+      var rx = new RegExp('"' + spec[0] + '"\\s*:\\s*"((?:[^"\\\\]|\\\\.)+)"', 'g');
+      var m;
+      while ((m = rx.exec(text))) add(m[1], spec[1], spec[2]);
+    });
+  });
+
+  // Flatten escapes once, then sweep for anything the named keys missed.
+  var flat = html
+    .replace(/\\u0025/gi, '%').replace(/\\u002F/gi, '/').replace(/\\u0026/gi, '&')
+    .replace(/\\\//g, '/').replace(/&amp;/g, '&');
+
+  var vid = /https:\/\/[a-z0-9.\-]*fbcdn\.net\/[^\s"'<>\\]+\.(?:mp4|webm)[^\s"'<>\\]*/gi;
+  var m;
+  while ((m = vid.exec(flat))) add(m[0], 'Video', '');
+
+  var img = /https:\/\/scontent[a-z0-9.\-]*\.fbcdn\.net\/[^\s"'<>\\]+\.(?:jpg|jpeg|png|webp)[^\s"'<>\\]*/gi;
+  var images = [];
+  while ((m = img.exec(flat))) {
+    var u = m[0];
+    if (/\/t39\.30808-1\//.test(u)) continue;            // profile pictures
+    if (/\/(?:emoji|rsrc)\b/.test(u)) continue;
+    var hint = u.match(/[_/\-]([sp])(\d{2,4})x(\d{2,4})/);
+    var area = hint ? Number(hint[2]) * Number(hint[3]) : Infinity;  // no hint = original
+    if (area < 160 * 160) continue;                      // avatars, icons, sprites
+    images.push({ url: u, area: area });
+  }
+  images.sort(function (a, b) { return b.area - a.area; });
+  images.slice(0, 12).forEach(function (i) { add(i.url, 'Photo', ''); });
+
+  // HD before SD before unlabelled; photos last.
+  var order = { HD: 0, SD: 1, '': 2 };
+  found.sort(function (a, b) {
+    if (a.kind !== b.kind) return a.kind === 'Video' ? -1 : 1;
+    return order[a.quality] - order[b.quality];
+  });
+  return found;
+}
+
+function videoId(text) {
+  var m = text.match(/[?&]v=(\d{6,})/) || text.match(/"video_id"\s*:\s*"(\d{6,})"/);
+  return m ? m[1] : String(Date.now()).slice(-10);
+}
+
+/* ---------- the bookmarklet ---------- */
+
+// Self-contained on purpose: Facebook's CSP would block a <script src> from
+// this origin, but a bookmarklet's own code runs as a user action and is fine.
+function buildBookmarklet(origin) {
+  var code = [
+    'javascript:(function(){',
+    'try{',
+    'var h=document.documentElement.outerHTML;',
+    'var r=[];try{r=performance.getEntriesByType("resource").map(function(e){return e.name})',
+    '.filter(function(n){return /fbcdn\\.net\\/.*\\.mp4/i.test(n)})}catch(e){}',
+    'var p={html:h.slice(0,6000000),net:r.slice(0,40),page:location.href};',
+    'var w=window.open("' + origin + '/","_blank");',
+    'if(!w){alert("Allow pop-ups for this site, then click the bookmark again.");return}',
+    'var done=0;',
+    'var send=function(){if(done>3)return;done++;try{w.postMessage({fbgrab:1,payload:p},"' + origin + '")}catch(e){}};',
+    // The new tab pings us the moment its listener is live; the timers are
+    // just a backstop in case that ping is missed.
+    'window.addEventListener("message",function(e){',
+    'if(e.origin==="' + origin + '"&&e.data&&e.data.fbgrabReady){done=0;send()}});',
+    'setTimeout(send,1200);setTimeout(send,3000);setTimeout(send,6000);',
+    '}catch(e){alert("Could not read this page: "+e.message)}',
+    '})()'
+  ].join('');
+  return code;
+}
+
+/* ---------- receiving from the bookmarklet ---------- */
+
+// The payload arrives from the facebook.com tab the bookmarklet ran in, so
+// that - not this origin - is what to accept. Everything inside is still
+// treated as untrusted text: only fbcdn.net URLs survive extraction, the
+// Worker refuses to fetch anything else, and nothing is ever set as HTML.
+var FB_ORIGIN = /^https:\/\/([a-z0-9-]+\.)*facebook\.com$/;
+
+window.addEventListener('message', function (ev) {
+  if (!FB_ORIGIN.test(ev.origin)) return;
+  var data = ev.data;
+  if (!data || data.fbgrab !== 1 || !data.payload) return;
+  var p = data.payload;
+  var html = String(p.html || '');
+  // Resource-timing URLs are already plain, so append them as raw text for
+  // the same extractor to pick up.
+  var net = Array.isArray(p.net) ? p.net.map(String).join('\n') : '';
+  handle(html + '\n' + net, videoId(String(p.page || '') + html));
+});
+
+// Tell the opener we are ready to receive, so it does not have to guess.
+if (window.opener) {
+  try { window.opener.postMessage({ fbgrabReady: 1 }, '*'); } catch (e) {}
+}
+
+/* ---------- rendering ---------- */
+
+var $ = function (id) { return document.getElementById(id); };
+
+function say(text, tone) {
+  var d = document.createElement('div');
+  d.className = 'msg ' + (tone || 'warn');
+  d.textContent = text;
+  $('messages').appendChild(d);
+}
+
+function clearMessages() { $('messages').innerHTML = ''; }
+
+function bytes(n) {
+  if (n == null) return null;
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
+}
+
+function advise(el, text) {
+  el.textContent = text;
+  el.classList.remove('hide');
+}
+
+function handle(html, id) {
+  clearMessages();
+  var found = extract(html);
+  if (!found.length) {
+    say('No video or photo found on that page. Open the post on its own page, let the video play for a second, then try the bookmark again.', 'bad');
+    $('results').classList.add('hide');
+    return;
+  }
+  render(found, id || videoId(html));
+}
+
+function render(found, id) {
+  var box = $('items');
+  box.innerHTML = '';
+  $('results').classList.remove('hide');
+  $('setup').classList.add('hide');
+
+  var videoCount = found.filter(function (f) { return f.kind === 'Video'; }).length;
+
+  found.forEach(function (item, i) {
+    var isVideo = item.kind === 'Video';
+    // Only point her at a smaller option if one is actually on screen.
+    var hasSmaller = isVideo && item.quality === 'HD' && videoCount > 1;
+    var ext = isVideo ? 'mp4' : 'jpg';
+    var suffix = item.quality ? '-' + item.quality.toLowerCase() : (found.length > 1 ? '-' + (i + 1) : '');
+    var filename = 'fb-' + id + suffix + '.' + ext;
+
+    var el = document.createElement('div');
+    el.className = 'item';
+
+    var head = document.createElement('div');
+    head.className = 'row';
+    if (!isVideo) {
+      var thumb = document.createElement('img');
+      thumb.className = 'thumb';
+      thumb.src = item.url;
+      thumb.alt = '';
+      head.appendChild(thumb);
+    }
+    var label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = item.kind + (item.quality ? ' · ' + item.quality : '');
+    head.appendChild(label);
+    var size = document.createElement('span');
+    size.className = 'hint';
+    size.textContent = 'checking size…';
+    head.appendChild(size);
+    var badge = document.createElement('span');
+    badge.className = 'badge hide';
+    head.appendChild(badge);
+    el.appendChild(head);
+
+    var actions = document.createElement('div');
+    actions.className = 'row';
+    var nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'name';
+    nameInput.value = filename;
+    actions.appendChild(nameInput);
+
+    var dl = document.createElement('button');
+    dl.className = 'primary';
+    dl.textContent = 'Download';
+    dl.onclick = function () {
+      location.href = '/dl?u=' + encodeURIComponent(item.url) +
+        '&name=' + encodeURIComponent(nameInput.value || filename);
+    };
+    actions.appendChild(dl);
+
+    el.appendChild(actions);
+
+    var status = document.createElement('div');
+    status.className = 'hint hide';
+    el.appendChild(status);
+    var bar = document.createElement('div');
+    bar.className = 'bar hide';
+    var fill = document.createElement('i');
+    bar.appendChild(fill);
+    el.appendChild(bar);
+
+    box.appendChild(el);
+
+    fetch('/probe?u=' + encodeURIComponent(item.url))
+      .then(function (r) { return r.json(); })
+      .then(function (info) {
+        if (!info.ok) {
+          size.textContent = 'link expired';
+          return;
+        }
+        if (info.size == null) { size.textContent = ''; return; }
+        size.textContent = bytes(info.size);
+        badge.classList.remove('hide');
+        if (info.size <= TRELLO_FREE) {
+          badge.className = 'badge ok';
+          badge.textContent = 'Fits Trello';
+        } else if (info.size <= TRELLO_PAID) {
+          badge.className = 'badge warn';
+          badge.textContent = 'Over Trello Free\u2019s 10 MB';
+          advise(status, hasSmaller
+            ? 'Too big for a free Trello card. The SD version below is smaller \u2014 try that one.'
+            : 'Too big for a free Trello card (paid plans allow 250 MB). Put a link on the card instead, or trim the clip first.');
+        } else {
+          badge.className = 'badge bad';
+          badge.textContent = 'Too big for Trello';
+          advise(status, 'Over Trello\u2019s 250 MB limit even on paid plans \u2014 put a link on the card instead.');
+        }
+      })
+      .catch(function () { size.textContent = ''; });
+  });
+}
+
+/* ---------- fallbacks ---------- */
+
+$('scan').onclick = function () {
+  var text = $('src').value;
+  if (text.trim().length < 200) {
+    say('That does not look like a full page source. Select all of it before copying.', 'bad');
+    return;
+  }
+  handle(text, videoId(text));
+};
+
+$('file').onchange = function (e) {
+  var f = e.target.files[0];
+  if (!f) return;
+  f.text().then(function (t) { handle(t, videoId(t)); });
+};
+
+$('fetchlink').onclick = function () {
+  var url = $('link').value.trim();
+  if (!url) return;
+  clearMessages();
+  var btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Looking…';
+  fetch('/link', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url: url })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.error) { say(data.error, 'bad'); return; }
+      var found = extract(data.html || '');
+      if (!found.length) {
+        say('Nothing found - that post is almost certainly private. Use the bookmark while you are logged in to Facebook instead.', 'bad');
+        return;
+      }
+      render(found, videoId(url + (data.html || '')));
+    })
+    .catch(function () { say('That lookup failed.', 'bad'); })
+    .finally(function () {
+      btn.disabled = false;
+      btn.textContent = 'Look up';
+    });
+};
+
+/* ---------- boot ---------- */
+
+$('bookmarklet').href = buildBookmarklet(location.origin);
+$('bookmarklet').onclick = function (e) {
+  e.preventDefault();
+  say('Drag this button onto your bookmarks bar rather than clicking it, then click it when you are on a Facebook post.', 'warn');
+};
+</script>
+</body>
+</html>

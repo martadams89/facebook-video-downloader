@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is awkward or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Does it hold the design constraints?
+      description: See [CONTRIBUTING.md](../CONTRIBUTING.md#things-to-keep-true).
+      options:
+        - label: It needs no Facebook credentials, cookies or session tokens
+        - label: It does not widen the host allowlists
+        - label: It stores nothing
