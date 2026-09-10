@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.4...v0.2.5) (2026-09-10)
+
+
+### 🐛 Bug Fixes
+
+* open the tab on the click, and recover when Facebook publishes nothing ([e4f0955](https://github.com/martadams89/facebook-video-downloader/commit/e4f0955c88701f338b671737d03e65b298c65944))
+
 ## [0.2.4](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.3...v0.2.4) (2026-09-10)
 
 
