@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.6](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.5...v0.2.6) (2026-09-10)
+
+
+### 🐛 Bug Fixes
+
+* stop truncating the payload past the media, and never wait silently ([f7aa015](https://github.com/martadams89/facebook-video-downloader/commit/f7aa015d62ed824cc86aea8effb88365caabf9f9))
+
 ## [0.2.5](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.4...v0.2.5) (2026-09-10)
 
 
