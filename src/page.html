@@ -95,6 +95,11 @@
 
   <div id="messages"></div>
 
+  <section id="waiting" class="hide">
+    <h2>Looking for the video&hellip;</h2>
+    <p class="hint">If nothing appears, switch back to the Facebook tab and press play on the video &mdash; this page fills in by itself once it is running.</p>
+  </section>
+
   <section id="results" class="hide">
     <h2>Found on that post</h2>
     <div id="items"></div>
@@ -337,25 +342,51 @@ function videoId(text) {
 // Self-contained on purpose: Facebook's CSP would block a <script src> from
 // this origin, but a bookmarklet's own code runs as a user action and is fine.
 function buildBookmarklet(origin) {
+  var O = JSON.stringify(origin);
   var code = [
-    'javascript:(function(){',
-    'try{',
-    'var h=document.documentElement.outerHTML;',
-    'var r=[];try{r=performance.getEntriesByType("resource").map(function(e){return e.name})',
+    'javascript:(function(){try{',
+    'var O=' + O + ';',
+    'var id=(location.href.match(/[?&]v=(\\d{6,})/)||location.href.match(/\\/videos\\/(?:[a-z]+\\.\\d+\\/)?(\\d{6,})/)||location.href.match(/\\/reel\\/(\\d{6,})/)||location.href.match(/\\/watch\\/(\\d{6,})/)||[])[1]||null;',
+    // Start the biggest player. Facebook only writes the media URLs into the
+    // page once the video initialises, and this is a real user gesture, so
+    // playback is allowed.
+    'try{var vs=[].slice.call(document.querySelectorAll("video"));',
+    'vs.sort(function(a,b){var x=a.getBoundingClientRect(),y=b.getBoundingClientRect();return y.width*y.height-x.width*x.height});',
+    'if(vs[0]&&vs[0].paused){vs[0].muted=true;var q=vs[0].play();if(q&&q.catch)q.catch(function(){})}}catch(e){}',
+    'var RX=/\\\\?"progressive_url\\\\?"\\s*:\\s*\\\\?"https/;',
+    'function has(){return RX.test(document.documentElement.outerHTML)}',
+    'function pay(ok){var h=document.documentElement.outerHTML;var r=[];',
+    'try{r=performance.getEntriesByType("resource").map(function(e){return e.name})',
     '.filter(function(n){return /fbcdn\\.net\\//i.test(n)&&(/^https:\\/\\/video/i.test(n)',
     '||/\\.(?:mp4|webm)(?:[?&]|$)/i.test(n)||/\\/v\\/t42\\.|\\/o1\\/v\\//i.test(n))})}catch(e){}',
-    'var p={html:h.slice(0,6000000),net:r.slice(0,40),page:location.href};',
-    'var w=window.open("' + origin + '/","_blank");',
+    'return{html:h.slice(0,6000000),net:r.slice(0,40),page:location.href,ready:ok,vid:id}}',
+    'var w=null,data=null,ok2=false;',
+    // The retry timers below are a backstop against a missed ready ping, but
+    // without an acknowledgement they deliver the same multi-megabyte payload
+    // three times, making the page render and re-probe three times over.
+    'function push(){if(!w||!data||ok2)return;try{w.postMessage({fbgrab:1,payload:data},O)}catch(e){}}',
+    // Everything above happens in the focused tab. Opening the results tab
+    // backgrounds this one, and Chrome then FREEZES it - timers stop and no
+    // DOM mutations arrive, so Facebook never finishes loading the video and
+    // nothing here would ever see it. So wait here first, then open. The wait
+    // is capped below Chrome"s ~5s transient-activation window, or the pop-up
+    // would be blocked.
+    'function go(ok){if(w)return;w=window.open(O+"/","_blank");',
     'if(!w){alert("Allow pop-ups for this site, then click the bookmark again.");return}',
-    'var done=0;',
-    'var send=function(){if(done>3)return;done++;try{w.postMessage({fbgrab:1,payload:p},"' + origin + '")}catch(e){}};',
-    // The new tab pings us the moment its listener is live; the timers are
-    // just a backstop in case that ping is missed.
-    'window.addEventListener("message",function(e){',
-    'if(e.origin==="' + origin + '"&&e.data&&e.data.fbgrabReady){done=0;send()}});',
-    'setTimeout(send,1200);setTimeout(send,3000);setTimeout(send,6000);',
-    '}catch(e){alert("Could not read this page: "+e.message)}',
-    '})()'
+    'data=pay(ok);',
+    'window.addEventListener("message",function(e){if(e.origin!==O||!e.data)return;',
+    'if(e.data.fbgrabGot)ok2=true;if(e.data.fbgrabReady)push()});',
+    'setTimeout(push,500);setTimeout(push,1500);setTimeout(push,3000);',
+    // If she goes back to the video, presses play and returns, this tab
+    // thaws and can hand over the media it now has - no second click needed.
+    'document.addEventListener("visibilitychange",function(){if(document.hidden)return;',
+    'setTimeout(function(){if(has()){ok2=false;data=pay(true);push()}},700)});',
+    '}',
+    'var T0=Date.now();',
+    '(function wait(){if(has())return go(true);',
+    'if(Date.now()-T0>3500)return go(false);',
+    'setTimeout(wait,200)})();',
+    '}catch(e){alert("Could not read this page: "+e.message)}})()'
   ].join('');
   return code;
 }
@@ -367,6 +398,7 @@ function buildBookmarklet(origin) {
 // treated as untrusted text: only fbcdn.net URLs survive extraction, the
 // Worker refuses to fetch anything else, and nothing is ever set as HTML.
 var FB_ORIGIN = /^https:\/\/([a-z0-9-]+\.)*facebook\.com$/;
+var lastPayloadStamp = null;
 
 window.addEventListener('message', function (ev) {
   if (!FB_ORIGIN.test(ev.origin)) return;
@@ -376,9 +408,20 @@ window.addEventListener('message', function (ev) {
   var html = String(p.html || '');
   // Resource-timing URLs are already plain, so append them as raw text for
   // the same extractor to pick up.
+  // Acknowledge so the sender stops retrying, and ignore an exact repeat.
+  try { ev.source.postMessage({ fbgrabGot: 1 }, ev.origin); } catch (e) {}
+  var stamp = html.length + '|' + String(p.page || '') + '|' + (p.ready !== false);
+  if (stamp === lastPayloadStamp) return;
+  lastPayloadStamp = stamp;
+
   var net = Array.isArray(p.net) ? p.net.map(String).join('\n') : '';
-  handle(html + '\n' + net, String(p.page || ''));
+  handle(html + '\n' + net, String(p.page || ''), p.ready !== false);
 });
+
+if (fromBookmarklet) {
+  $('setup').classList.add('hide');
+  $('waiting').classList.remove('hide');
+}
 
 // Tell the opener we are ready to receive, so it does not have to guess.
 if (window.opener) {
@@ -397,6 +440,26 @@ function say(text, tone) {
 }
 
 function clearMessages() { $('messages').innerHTML = ''; }
+
+// Opened by the bookmarklet, so the Facebook tab is still listening and can
+// be asked to look again - no need to go back and re-click anything.
+var fromBookmarklet = !!window.opener;
+
+function sayWithRetry(text) {
+  var d = document.createElement('div');
+  d.className = 'msg warn';
+  d.textContent = text + ' ';
+  if (fromBookmarklet) {
+    // A backgrounded Facebook tab is frozen, so asking it to look again from
+    // here achieves nothing. Switching back to it thaws it, and the bookmarklet
+    // hands the media over on its own once the video is running.
+    var hint = document.createElement('div');
+    hint.style.marginTop = '8px';
+    hint.textContent = 'Switch back to the Facebook tab, press play on the video, then come back here \u2014 this page fills in by itself.';
+    d.appendChild(hint);
+  }
+  $('messages').appendChild(d);
+}
 
 function bytes(n) {
   if (n == null) return null;
@@ -418,16 +481,21 @@ function advise(el, text) {
   el.classList.remove('hide');
 }
 
-function handle(html, pageUrl) {
+function handle(html, pageUrl, ready) {
   clearMessages();
+  $('waiting').classList.add('hide');
   var found = extract(html, pageUrl);
+  var noVideo = !found.some(function (f) { return f.kind === 'Video'; });
+
   if (!found.length) {
-    say('No video or photo found on that page. Open the post on its own page, let the video play for a second, then try the bookmark again.', 'bad');
+    sayWithRetry('Nothing found on that page yet. Press play on the video, then look again.');
     $('results').classList.add('hide');
     return;
   }
-  if (!found.some(function (f) { return f.kind === 'Video'; })) {
-    say('Photos only \u2014 no video was loaded on that page yet. If you wanted a video: open the video itself (not the group feed), press play, then click the bookmark again.', 'warn');
+  if (noVideo) {
+    sayWithRetry(ready === false
+      ? 'Facebook had not finished loading the video, so only photos were found. Press play on the video and look again.'
+      : 'Photos only \u2014 no video was loaded on that page. If you wanted a video, press play on it and look again.');
   }
   render(found, videoId(pageUrl || '') || videoId(html));
 }
