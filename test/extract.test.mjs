@@ -29,6 +29,24 @@ const fixture = `
 https://video-lhr8-1.xx.fbcdn.net/v/t42.1790-2/aaa_n.mp4?_nc_cat=1&oh=00_AfDx&oe=68C0FFEE&bytestart=0&byteend=524287
 `;
 
+// Regression: progressive video with no .mp4 in the URL at all. Facebook
+// serves these off video*.fbcdn.net under /o1/v/* and /v/t42.*, and a
+// filter keyed on the extension loses them silently.
+const noExt = `
+{"playable_url":"https:\\/\\/video-lhr8-1.xx.fbcdn.net\\/o1\\/v\\/t2\\/f2\\/m69\\/AbCdEf?efg=xyz&_nc_oc=Q1&oh=00_Af&oe=68C0"}
+https://video-lhr6-2.xx.fbcdn.net/v/t42.1790-2/nakedpath?_nc_ohc=Zz&oh=00_Ag&oe=68C1
+https://static.xx.fbcdn.net/rsrc.php/v4/y1/r/someuiasset
+`.padEnd(300,' ');
+const nx = mod.extract(noExt).map(f => f.kind + ' ' + f.url);
+console.log('\nextension-less URLs ->', nx.length, 'found');
+for (const u of nx) console.log('  ', u.slice(0, 84));
+const nxFail = [];
+if (!nx.some(u => u.includes('/o1/v/t2/'))) nxFail.push('missed /o1/v/ progressive video');
+if (!nx.some(u => u.includes('nakedpath'))) nxFail.push('missed extension-less /v/t42. video');
+if (nx.some(u => u.includes('rsrc.php'))) nxFail.push('picked up a static UI asset');
+if (nx.some(u => u.startsWith('Photo'))) nxFail.push('classified a video as a photo');
+console.log(nxFail.length ? 'FAIL: ' + nxFail.join('; ') : 'Extension-less video checks passed.');
+
 const found = mod.extract(fixture);
 console.log('video id ->', mod.videoId(fixture));
 console.log('found', found.length, 'items:');

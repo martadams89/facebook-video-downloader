@@ -196,6 +196,15 @@ function decode(s) {
 
 // Strip the byte-range params off a URL grabbed from resource timing, so we
 // ask for the whole file rather than the segment the player happened to want.
+// Facebook does not consistently put .mp4 in its media URLs; progressive
+// video also comes off video*.fbcdn.net under /v/t42.* or /o1/v/* with no
+// extension at all. Requiring .mp4 silently loses those.
+function looksLikeVideo(u) {
+  return /^https:\/\/video[a-z0-9.\-]*\.fbcdn\.net\//i.test(u) ||
+    /\.(?:mp4|webm)(?:[?&]|$)/i.test(u) ||
+    /\/v\/t42\.|\/o1\/v\//i.test(u);
+}
+
 function whole(u) {
   return u.replace(/[?&]bytestart=\d+/g, '').replace(/[?&]byteend=\d+/g, '');
 }
@@ -232,9 +241,11 @@ function extract(html) {
     .replace(/\\u0025/gi, '%').replace(/\\u002F/gi, '/').replace(/\\u0026/gi, '&')
     .replace(/\\\//g, '/').replace(/&amp;/g, '&');
 
-  var vid = /https:\/\/[a-z0-9.\-]*fbcdn\.net\/[^\s"'<>\\]+\.(?:mp4|webm)[^\s"'<>\\]*/gi;
+  var any = /https:\/\/[a-z0-9.\-]*fbcdn\.net\/[^\s"'<>\\]+/gi;
   var m;
-  while ((m = vid.exec(flat))) add(m[0], 'Video', '');
+  while ((m = any.exec(flat))) {
+    if (looksLikeVideo(m[0])) add(m[0], 'Video', '');
+  }
 
   var img = /https:\/\/scontent[a-z0-9.\-]*\.fbcdn\.net\/[^\s"'<>\\]+\.(?:jpg|jpeg|png|webp)[^\s"'<>\\]*/gi;
   var images = [];
@@ -274,7 +285,8 @@ function buildBookmarklet(origin) {
     'try{',
     'var h=document.documentElement.outerHTML;',
     'var r=[];try{r=performance.getEntriesByType("resource").map(function(e){return e.name})',
-    '.filter(function(n){return /fbcdn\\.net\\/.*\\.mp4/i.test(n)})}catch(e){}',
+    '.filter(function(n){return /fbcdn\\.net\\//i.test(n)&&(/^https:\\/\\/video/i.test(n)',
+    '||/\\.(?:mp4|webm)(?:[?&]|$)/i.test(n)||/\\/v\\/t42\\.|\\/o1\\/v\\//i.test(n))})}catch(e){}',
     'var p={html:h.slice(0,6000000),net:r.slice(0,40),page:location.href};',
     'var w=window.open("' + origin + '/","_blank");',
     'if(!w){alert("Allow pop-ups for this site, then click the bookmark again.");return}',
@@ -346,6 +358,9 @@ function handle(html, id) {
     say('No video or photo found on that page. Open the post on its own page, let the video play for a second, then try the bookmark again.', 'bad');
     $('results').classList.add('hide');
     return;
+  }
+  if (!found.some(function (f) { return f.kind === 'Video'; })) {
+    say('Photos only \u2014 no video was loaded on that page yet. If you wanted a video: open the video itself (not the group feed), press play, then click the bookmark again.', 'warn');
   }
   render(found, id || videoId(html));
 }
