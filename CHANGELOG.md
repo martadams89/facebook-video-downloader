@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.0...v0.2.1) (2026-09-10)
+
+
+### 🐛 Bug Fixes
+
+* show the video the page is actually about ([999f3c1](https://github.com/martadams89/facebook-video-downloader/commit/999f3c1a0b6c4aaa0518244d3f44b6ee2a33d146))
+
 ## [0.2.0](https://github.com/martadams89/facebook-video-downloader/compare/v0.1.0...v0.2.0) (2026-09-10)
 
 
