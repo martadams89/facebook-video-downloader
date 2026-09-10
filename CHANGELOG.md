@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.1...v0.2.2) (2026-09-10)
+
+
+### 🐛 Bug Fixes
+
+* wait for the video before handing over, not after ([4dd3b3a](https://github.com/martadams89/facebook-video-downloader/commit/4dd3b3af8da12a8e3a57d75ca6936695a2ffd361))
+
 ## [0.2.1](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.0...v0.2.1) (2026-09-10)
 
 
