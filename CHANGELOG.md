@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.3...v0.2.4) (2026-09-10)
+
+
+### 🐛 Bug Fixes
+
+* never hand over the previously viewed post's video ([9791997](https://github.com/martadams89/facebook-video-downloader/commit/97919975263f0c5634aca828f50b1551cf185f82))
+
 ## [0.2.3](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.2...v0.2.3) (2026-09-10)
 
 
