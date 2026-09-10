@@ -210,11 +210,12 @@ function whole(u) {
   return u.replace(/[?&]bytestart=\d+/g, '').replace(/[?&]byteend=\d+/g, '');
 }
 
-function extract(html) {
+function extract(html, pageUrl) {
+  var targetId = idFromUrl(pageUrl);
   var found = [];
   var seen = {};
 
-  function add(url, kind, quality) {
+  function add(url, kind, quality, primary) {
     url = whole(decode(url));
     if (!/^https:\/\/[a-z0-9.\-]*fbcdn\.net\//i.test(url)) return;
     // Same file re-signed twice is still one file: key on the path.
@@ -222,7 +223,7 @@ function extract(html) {
     try { key = new URL(url).pathname; } catch (e) { key = url; }
     if (seen[key]) return;
     seen[key] = 1;
-    found.push({ url: url, kind: kind, quality: quality });
+    found.push({ url: url, kind: kind, quality: quality, primary: !!primary });
   }
 
   // Facebook's payload is sometimes escaped one extra level deep.
@@ -244,7 +245,15 @@ function extract(html) {
       var after = pm.index + pm[0].length;
       var near = text.slice(after, after + 400);
       var q = near.match(/\\?"quality\\?"\s*:\s*\\?"([A-Za-z0-9]{1,8})\\?"/);
-      add(pm[1], 'Video', q ? q[1].toUpperCase() : '');
+      // The id of the video a URL belongs to sits just before it in the
+      // payload (observed at 74 and 805 characters). That is what lets us
+      // tell the post you opened apart from the suggestion rail, which
+      // otherwise contributes most of the list.
+      var primary = false;
+      if (targetId) {
+        primary = text.lastIndexOf(targetId, pm.index) > pm.index - 2500;
+      }
+      add(pm[1], 'Video', q ? q[1].toUpperCase() : '', primary);
     }
 
     VIDEO_KEYS.forEach(function (spec) {
@@ -276,10 +285,15 @@ function extract(html) {
   while ((m = img.exec(flat))) {
     var u = m[0];
     if (/\/t39\.30808-1\//.test(u)) continue;            // profile pictures
-    if (/\/(?:emoji|rsrc)\b/.test(u)) continue;
+    if (/\/t1\.30497-1\//.test(u)) continue;             // the default silhouette
+    if (/\/(?:emoji|rsrc|safe_image)\b/.test(u)) continue;
+    if (/cp0_dst-|\/[sp]\d{1,2}x\d{1,2}\//.test(u)) continue;
     var hint = u.match(/[_/\-]([sp])(\d{2,4})x(\d{2,4})/);
-    var area = hint ? Number(hint[2]) * Number(hint[3]) : Infinity;  // no hint = original
-    if (area < 160 * 160) continue;                      // avatars, icons, sprites
+    // An unhinted URL is usually an original, but not always - treating it as
+    // infinitely large floated 2 KB avatars to the top of the list. Rank it
+    // below anything explicitly large instead.
+    var area = hint ? Number(hint[2]) * Number(hint[3]) : 600 * 600;
+    if (hint && area < 160 * 160) continue;              // icons and sprites
     images.push({ url: u, area: area });
   }
   images.sort(function (a, b) { return b.area - a.area; });
@@ -300,9 +314,22 @@ function extract(html) {
   return found;
 }
 
+// Facebook has several permalink shapes and only one of them uses ?v=.
+// Missing the others meant falling back to a timestamp, which is why files
+// came out named after the clock instead of the video.
+function idFromUrl(url) {
+  var m = String(url || '').match(/[?&]v=(\d{6,})/) ||
+    String(url || '').match(/\/videos\/(?:[a-z]+\.\d+\/)?(\d{6,})/) ||
+    String(url || '').match(/\/reel\/(\d{6,})/) ||
+    String(url || '').match(/\/watch\/(\d{6,})/);
+  return m ? m[1] : null;
+}
+
 function videoId(text) {
-  var m = text.match(/[?&]v=(\d{6,})/) || text.match(/"video_id"\s*:\s*"(\d{6,})"/);
-  return m ? m[1] : String(Date.now()).slice(-10);
+  var m = idFromUrl(text);
+  if (m) return m;
+  var j = String(text).match(/"video_id"\s*:\s*"(\d{6,})"/);
+  return j ? j[1] : String(Date.now()).slice(-10);
 }
 
 /* ---------- the bookmarklet ---------- */
@@ -350,7 +377,7 @@ window.addEventListener('message', function (ev) {
   // Resource-timing URLs are already plain, so append them as raw text for
   // the same extractor to pick up.
   var net = Array.isArray(p.net) ? p.net.map(String).join('\n') : '';
-  handle(html + '\n' + net, videoId(String(p.page || '') + html));
+  handle(html + '\n' + net, String(p.page || ''));
 });
 
 // Tell the opener we are ready to receive, so it does not have to guess.
@@ -391,9 +418,9 @@ function advise(el, text) {
   el.classList.remove('hide');
 }
 
-function handle(html, id) {
+function handle(html, pageUrl) {
   clearMessages();
-  var found = extract(html);
+  var found = extract(html, pageUrl);
   if (!found.length) {
     say('No video or photo found on that page. Open the post on its own page, let the video play for a second, then try the bookmark again.', 'bad');
     $('results').classList.add('hide');
@@ -402,7 +429,7 @@ function handle(html, id) {
   if (!found.some(function (f) { return f.kind === 'Video'; })) {
     say('Photos only \u2014 no video was loaded on that page yet. If you wanted a video: open the video itself (not the group feed), press play, then click the bookmark again.', 'warn');
   }
-  render(found, id || videoId(html));
+  render(found, videoId(pageUrl || '') || videoId(html));
 }
 
 function render(found, id) {
@@ -415,11 +442,19 @@ function render(found, id) {
   // the suggestion rail, reels and autoplay neighbours all ship their own
   // media. Showing every one of them at once is what made this unusable,
   // so all but the first few start collapsed.
-  var INITIAL = 3;
   var counters = { Video: 0, Photo: 0 };
   var extras = [];
 
+  // If we could tell which video the page was actually about, show only that
+  // one up front. Otherwise fall back to the first few. Without this a feed
+  // page buries the wanted clip among the suggestion rail, which is how you
+  // end up downloading something you never asked for.
+  var primaries = found.filter(function (f) { return f.primary; });
+  var scoped = primaries.length > 0;
+  var INITIAL = scoped ? 0 : 3;
+
   found.forEach(function (item, i) {
+    var lead = scoped ? item.primary : i < INITIAL;
     var isVideo = item.kind === 'Video';
     var n = ++counters[item.kind];
     var ext = isVideo ? 'mp4' : 'jpg';
@@ -527,6 +562,9 @@ function render(found, id) {
         .then(function (info) {
           if (!info.ok) { size.textContent = 'link expired'; return; }
           if (info.size == null) { size.textContent = ''; return; }
+          // A 2 KB "photo" is an avatar or an icon that slipped past the URL
+          // filters. Size is the one signal that settles it.
+          if (!isVideo && info.size < 15000) { el.remove(); return; }
           size.textContent = bytes(info.size);
           badge.classList.remove('hide');
           if (info.size <= TRELLO_FREE) {
@@ -545,7 +583,7 @@ function render(found, id) {
         .catch(function () { size.textContent = ''; });
     }
 
-    if (i < INITIAL) {
+    if (lead) {
       probe();
     } else {
       el.classList.add('hide');
@@ -562,7 +600,9 @@ function render(found, id) {
   if (extras.length) {
     var more = document.createElement('button');
     more.style.marginTop = '4px';
-    more.textContent = 'Show ' + extras.length + ' more found on that page';
+    more.textContent = scoped
+      ? 'Show ' + extras.length + ' other items found on that page'
+      : 'Show ' + extras.length + ' more found on that page';
     more.onclick = function () {
       extras.forEach(function (x) {
         x.el.classList.remove('hide');
@@ -575,7 +615,9 @@ function render(found, id) {
 
     var note = document.createElement('p');
     note.className = 'hint';
-    note.textContent = 'The first entries are usually the post you opened. The rest are other videos Facebook loaded on the same page \u2014 suggestions, reels and autoplay neighbours.';
+    note.textContent = scoped
+      ? 'Showing the video this page is about. The rest are other things Facebook loaded alongside it \u2014 suggestions, reels and autoplay neighbours.'
+      : 'Could not tell which video this page is about, so the first few are shown. Opening the video on its own page usually makes it exact.';
     box.appendChild(note);
   }
 }
@@ -588,13 +630,13 @@ $('scan').onclick = function () {
     say('That does not look like a full page source. Select all of it before copying.', 'bad');
     return;
   }
-  handle(text, videoId(text));
+  handle(text, null);
 };
 
 $('file').onchange = function (e) {
   var f = e.target.files[0];
   if (!f) return;
-  f.text().then(function (t) { handle(t, videoId(t)); });
+  f.text().then(function (t) { handle(t, null); });
 };
 
 $('fetchlink').onclick = function () {
@@ -612,12 +654,12 @@ $('fetchlink').onclick = function () {
     .then(function (r) { return r.json(); })
     .then(function (data) {
       if (data.error) { say(data.error, 'bad'); return; }
-      var found = extract(data.html || '');
+      var found = extract(data.html || '', url);
       if (!found.length) {
         say('Nothing found - that post is almost certainly private. Use the bookmark while you are logged in to Facebook instead.', 'bad');
         return;
       }
-      render(found, videoId(url + (data.html || '')));
+      render(found, videoId(url) || videoId(data.html || ''));
     })
     .catch(function () { say('That lookup failed.', 'bad'); })
     .finally(function () {

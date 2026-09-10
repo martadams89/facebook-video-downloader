@@ -6,7 +6,7 @@ const script = html.split('<script>')[1].split('</scr'+'ipt>')[0];
 const start = script.indexOf('var VIDEO_KEYS');
 const end = script.indexOf('/* ---------- the bookmarklet');
 const src = script.slice(start, end);
-const mod = new Function(src + '; return {extract, videoId, decode, whole};')();
+const mod = new Function(src + '; return {extract, videoId, decode, whole, idFromUrl};')();
 
 // Fixture shaped like a real /watch payload: JSON-escaped slashes, &amp; in the
 // query, a feed with two videos, avatars and emoji that must NOT be picked up.
@@ -86,6 +86,60 @@ const legacyOnly = mod.extract('x'.repeat(250) + ' https://video-lhr8-1.xx.fbcdn
 console.log(legacyOnly.some(f => f.kind === 'Video')
   ? 'Fallback still fires when named keys miss.'
   : 'FAIL: fallback sweep did not fire');
+
+// Every permalink shape Facebook uses, not just ?v=. Getting these wrong
+// meant falling back to a timestamp for the filename.
+const urlCases = [
+  ['https://www.facebook.com/gerald.g/videos/1871225183860970/?idorvanity=242', '1871225183860970'],
+  ['https://www.facebook.com/546179903/videos/pcb.2123718148220076/1835526377763709', '1835526377763709'],
+  ['https://www.facebook.com/watch/?v=1835526377763709', '1835526377763709'],
+  ['https://www.facebook.com/reel/987654321012345', '987654321012345'],
+  ['https://www.facebook.com/groups/12345', null],
+];
+const urlFails = urlCases.filter(([u, want]) => mod.idFromUrl(u) !== want);
+console.log('\npermalink shapes ->', urlCases.length - urlFails.length + '/' + urlCases.length, 'parsed');
+console.log(urlFails.length
+  ? 'FAIL: ' + urlFails.map(([u]) => u.slice(-34)).join('; ')
+  : 'Permalink parsing passed.');
+
+// Scoping: the id of the video a URL belongs to sits just before it, so the
+// clip the page is about must be separable from the suggestion rail.
+const TARGET = '1871225183860970';
+const OTHER = '1120215580359026';
+const sig2 = '?oh=00_Af&oe=68C0';
+const feed = `
+{"video_id":"${TARGET}","videoDeliveryResponseResult":{"progressive_urls":[
+ {"progressive_url":"https:\\/\\/scontent-lhr6-2.xx.fbcdn.net\\/o1\\/v\\/t2\\/f2\\/m69\\/WANTED${sig2}","failure_reason":null,"metadata":{"quality":"SD"}}]}}
+${'.'.repeat(4000)}
+{"video_id":"${OTHER}","videoDeliveryResponseResult":{"progressive_urls":[
+ {"progressive_url":"https:\\/\\/scontent-lhr6-2.xx.fbcdn.net\\/o1\\/v\\/t2\\/f2\\/m69\\/SUGGESTED${sig2}","failure_reason":null,"metadata":{"quality":"SD"}}]}}
+`;
+const scopedOut = mod.extract(feed, 'https://www.facebook.com/x/videos/' + TARGET + '/');
+const primary = scopedOut.filter(f => f.primary);
+console.log('\nfeed with 2 videos ->', scopedOut.length, 'found,', primary.length, 'marked as the opened video');
+const sFail = [];
+if (primary.length !== 1) sFail.push('expected exactly 1 primary, got ' + primary.length);
+if (primary[0] && !primary[0].url.includes('WANTED')) sFail.push('marked the wrong video as primary');
+if (scopedOut.some(f => f.primary && f.url.includes('SUGGESTED'))) sFail.push('suggestion marked primary');
+// With no page URL there is nothing to scope by, so nothing may be primary.
+if (mod.extract(feed, null).some(f => f.primary)) sFail.push('primary set without a page URL');
+console.log(sFail.length ? 'FAIL: ' + sFail.join('; ') : 'Target-video scoping passed.');
+
+// Avatars and UI chrome must not appear as photos.
+const avatars = `
+https://scontent-lhr6-2.xx.fbcdn.net/v/t39.30808-1/avatar_n.jpg?stp=c0.0.32.32a_p32x32
+https://scontent-lhr6-2.xx.fbcdn.net/v/t1.30497-1/silhouette_n.jpg?stp=p64x64
+https://scontent-lhr6-2.xx.fbcdn.net/v/t39.30808-6/icon_n.jpg?stp=dst-jpg_s48x48
+https://scontent-lhr6-2.xx.fbcdn.net/v/t39.30808-6/realphoto_n.jpg?stp=dst-jpg_p2048x2048
+`.padEnd(300, ' ');
+const photos = mod.extract(avatars, null).filter(f => f.kind === 'Photo');
+console.log('\navatar filtering ->', photos.length, 'photo(s) kept');
+const aFail = [];
+if (!photos.some(f => f.url.includes('realphoto'))) aFail.push('dropped the real photo');
+['avatar_n', 'silhouette_n', 'icon_n'].forEach(bad => {
+  if (photos.some(f => f.url.includes(bad))) aFail.push('kept ' + bad);
+});
+console.log(aFail.length ? 'FAIL: ' + aFail.join('; ') : 'Avatar filtering passed.');
 
 const found = mod.extract(fixture);
 console.log('video id ->', mod.videoId(fixture));
