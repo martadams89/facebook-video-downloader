@@ -258,10 +258,16 @@ function extract(html) {
     .replace(/\\u0025/gi, '%').replace(/\\u002F/gi, '/').replace(/\\u0026/gi, '&')
     .replace(/\\\//g, '/').replace(/&amp;/g, '&');
 
-  var any = /https:\/\/[a-z0-9.\-]*fbcdn\.net\/[^\s"'<>\\]+/gi;
+  // Fallback only. A single post yields dozens of matching URLs - segment
+  // variants, alternate renditions - so sweeping unconditionally turns six
+  // real entries into a list of twenty-plus unlabelled ones. Run it only when
+  // the named keys found no video at all.
   var m;
-  while ((m = any.exec(flat))) {
-    if (looksLikeVideo(m[0])) add(m[0], 'Video', '');
+  if (!found.some(function (f) { return f.kind === 'Video'; })) {
+    var any = /https:\/\/[a-z0-9.\-]*fbcdn\.net\/[^\s"'<>\\]+/gi;
+    while ((m = any.exec(flat))) {
+      if (looksLikeVideo(m[0])) add(m[0], 'Video', '');
+    }
   }
 
   var img = /https:\/\/scontent[a-z0-9.\-]*\.fbcdn\.net\/[^\s"'<>\\]+\.(?:jpg|jpeg|png|webp)[^\s"'<>\\]*/gi;

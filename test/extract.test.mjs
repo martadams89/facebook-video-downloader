@@ -33,7 +33,7 @@ https://video-lhr8-1.xx.fbcdn.net/v/t42.1790-2/aaa_n.mp4?_nc_cat=1&oh=00_AfDx&oe
 // serves these off video*.fbcdn.net under /o1/v/* and /v/t42.*, and a
 // filter keyed on the extension loses them silently.
 const noExt = `
-{"playable_url":"https:\\/\\/video-lhr8-1.xx.fbcdn.net\\/o1\\/v\\/t2\\/f2\\/m69\\/AbCdEf?efg=xyz&_nc_oc=Q1&oh=00_Af&oe=68C0"}
+https://video-lhr8-1.xx.fbcdn.net/o1/v/t2/f2/m69/AbCdEf?efg=xyz&_nc_oc=Q1&oh=00_Af&oe=68C0
 https://video-lhr6-2.xx.fbcdn.net/v/t42.1790-2/nakedpath?_nc_ohc=Zz&oh=00_Ag&oe=68C1
 https://static.xx.fbcdn.net/rsrc.php/v4/y1/r/someuiasset
 `.padEnd(300,' ');
@@ -68,6 +68,22 @@ if (!mod2.some(f => f.quality === 'SD')) mFail.push('SD label lost');
 if (mod2.some(f => f.url.includes('\\'))) mFail.push('escaped slashes left in URL');
 if (!mod2.every(f => f.url.length > 400)) mFail.push('URL truncated');
 console.log(mFail.length ? 'FAIL: ' + mFail.join('; ') : 'Modern-schema checks passed.');
+
+// The generic sweep must not pile extra unlabelled rows on top of clean
+// named-key results: one real post yields 20+ incidental matches.
+const noisy = modern + '\n' + Array.from({length:9},(_,i)=>
+  `https://scontent-lhr6-2.xx.fbcdn.net/o1/v/t2/f2/m69/extra${i}.mp4?oh=0&oe=1`).join('\n');
+const noisyOut = mod.extract(noisy).filter(f => f.kind === 'Video');
+console.log('\nnamed keys + 9 stray URLs ->', noisyOut.length, 'videos');
+console.log(noisyOut.length === 2
+  ? 'Fallback-only sweep passed.'
+  : 'FAIL: generic sweep ran despite named-key hits (' + noisyOut.length + ' videos)');
+
+// ...but it must still fire when the named keys find nothing.
+const legacyOnly = mod.extract('x'.repeat(250) + ' https://video-lhr8-1.xx.fbcdn.net/v/t42.1790-2/only_n.mp4?oh=1 ');
+console.log(legacyOnly.some(f => f.kind === 'Video')
+  ? 'Fallback still fires when named keys miss.'
+  : 'FAIL: fallback sweep did not fire');
 
 const found = mod.extract(fixture);
 console.log('video id ->', mod.videoId(fixture));
