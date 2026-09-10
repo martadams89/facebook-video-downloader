@@ -256,7 +256,12 @@ function extract(html, pageUrl) {
       // otherwise contributes most of the list.
       var primary = false;
       if (targetId) {
-        primary = text.lastIndexOf(targetId, pm.index) > pm.index - 2500;
+        // lastIndexOf returns -1 when the id is absent, and -1 is greater
+        // than (index - 2500) for anything in the first 2500 characters - so
+        // without the -1 guard a stale video near the top of the payload gets
+        // claimed as this post's.
+        var at = text.lastIndexOf(targetId, pm.index);
+        primary = at !== -1 && at > pm.index - 2500;
       }
       add(pm[1], 'Video', q ? q[1].toUpperCase() : '', primary);
     }
@@ -316,6 +321,9 @@ function extract(html, pageUrl) {
     if (a.kind !== b.kind) return a.kind === 'Video' ? -1 : 1;
     return 0;
   });
+  // Lets the page distinguish "no video for this post" from "could not tell
+  // which post this is", which need different handling and different advice.
+  found.targetKnown = !!targetId;
   return found;
 }
 
@@ -353,8 +361,20 @@ function buildBookmarklet(origin) {
     'try{var vs=[].slice.call(document.querySelectorAll("video"));',
     'vs.sort(function(a,b){var x=a.getBoundingClientRect(),y=b.getBoundingClientRect();return y.width*y.height-x.width*x.height});',
     'if(vs[0]&&vs[0].paused){vs[0].muted=true;var q=vs[0].play();if(q&&q.catch)q.catch(function(){})}}catch(e){}',
-    'var RX=/\\\\?"progressive_url\\\\?"\\s*:\\s*\\\\?"https/;',
-    'function has(){return RX.test(document.documentElement.outerHTML)}',
+    'var RX=/\\\\?"progressive_url\\\\?"\\s*:\\s*\\\\?"https/g;',
+    // Facebook is a single-page app and never clears the previous post's
+    // payload, so "is there any progressive_url?" is already true the moment
+    // you arrive at a second video - and the answer it gives is the video you
+    // were looking at before. Measured on a real tab: six URLs present, none
+    // of them belonging to the post on screen. So require one that belongs to
+    // THIS video, falling back to any only when the URL carries no id.
+    'function has(){var h=document.documentElement.outerHTML;',
+    'if(h.indexOf("progressive_url")===-1)return false;',
+    'if(!id)return true;',
+    'RX.lastIndex=0;var m;',
+    'while((m=RX.exec(h))!==null){var a=h.lastIndexOf(id,m.index);',
+    'if(a!==-1&&a>m.index-2500)return true}',
+    'return false}',
     'function pay(ok){var h=document.documentElement.outerHTML;var r=[];',
     'try{r=performance.getEntriesByType("resource").map(function(e){return e.name})',
     '.filter(function(n){return /fbcdn\\.net\\//i.test(n)&&(/^https:\\/\\/video/i.test(n)',
@@ -385,7 +405,7 @@ function buildBookmarklet(origin) {
     'var T0=Date.now();',
     '(function wait(){if(has())return go(true);',
     'if(Date.now()-T0>3500)return go(false);',
-    'setTimeout(wait,200)})();',
+    'setTimeout(wait,350)})();',
     '}catch(e){alert("Could not read this page: "+e.message)}})()'
   ].join('');
   return code;
@@ -485,17 +505,22 @@ function handle(html, pageUrl, ready) {
   clearMessages();
   $('waiting').classList.add('hide');
   var found = extract(html, pageUrl);
-  var noVideo = !found.some(function (f) { return f.kind === 'Video'; });
+  var noOwnVideo = !found.some(function (f) { return f.kind === 'Video' && f.primary; });
+  var anyVideo = found.some(function (f) { return f.kind === 'Video'; });
 
   if (!found.length) {
     sayWithRetry('Nothing found on that page yet. Press play on the video, then look again.');
     $('results').classList.add('hide');
     return;
   }
-  if (noVideo) {
-    sayWithRetry(ready === false
-      ? 'Facebook had not finished loading the video, so only photos were found. Press play on the video and look again.'
-      : 'Photos only \u2014 no video was loaded on that page. If you wanted a video, press play on it and look again.');
+  if (found.targetKnown && noOwnVideo) {
+    // Being explicit matters here: there may well be videos in the payload,
+    // but they are last post's, and quietly offering them is the bug.
+    sayWithRetry(anyVideo
+      ? 'This post\u2019s video has not loaded yet, so it is not in the list. Any videos below belong to posts you viewed earlier, not this one.'
+      : 'This post\u2019s video has not loaded yet.');
+  } else if (!found.targetKnown && !anyVideo) {
+    sayWithRetry('Photos only \u2014 no video was loaded on that page.');
   }
   render(found, videoId(pageUrl || '') || videoId(html));
 }
@@ -518,11 +543,24 @@ function render(found, id) {
   // page buries the wanted clip among the suggestion rail, which is how you
   // end up downloading something you never asked for.
   var primaries = found.filter(function (f) { return f.primary; });
-  var scoped = primaries.length > 0;
-  var INITIAL = scoped ? 0 : 3;
+  var targetKnown = !!found.targetKnown;
+
+  // Which items are presented as "this post":
+  //   - the videos that belong to it, when we found any;
+  //   - otherwise its photos, when we at least know which post this is;
+  //   - otherwise the first few, because there is nothing better to go on.
+  // Crucially, when the post is known but none of its videos are present, no
+  // video leads. The others in the payload belong to previously viewed posts,
+  // and showing them here is precisely how you get handed the wrong video.
+  var mode = primaries.length ? 'primary' : (targetKnown ? 'photos' : 'first');
+  function isLead(item, i) {
+    if (mode === 'primary') return item.primary;
+    if (mode === 'photos') return item.kind === 'Photo';
+    return i < 3;
+  }
 
   found.forEach(function (item, i) {
-    var lead = scoped ? item.primary : i < INITIAL;
+    var lead = isLead(item, i);
     var isVideo = item.kind === 'Video';
     var n = ++counters[item.kind];
     var ext = isVideo ? 'mp4' : 'jpg';
@@ -668,9 +706,9 @@ function render(found, id) {
   if (extras.length) {
     var more = document.createElement('button');
     more.style.marginTop = '4px';
-    more.textContent = scoped
-      ? 'Show ' + extras.length + ' other items found on that page'
-      : 'Show ' + extras.length + ' more found on that page';
+    more.textContent = mode === 'first'
+      ? 'Show ' + extras.length + ' more found on that page'
+      : 'Show ' + extras.length + ' other items found on that page';
     more.onclick = function () {
       extras.forEach(function (x) {
         x.el.classList.remove('hide');
@@ -683,9 +721,11 @@ function render(found, id) {
 
     var note = document.createElement('p');
     note.className = 'hint';
-    note.textContent = scoped
-      ? 'Showing the video this page is about. The rest are other things Facebook loaded alongside it \u2014 suggestions, reels and autoplay neighbours.'
-      : 'Could not tell which video this page is about, so the first few are shown. Opening the video on its own page usually makes it exact.';
+    note.textContent = mode === 'primary'
+      ? 'Showing the video this page is about. The rest belong to other posts \u2014 suggestions, reels, and videos you looked at earlier in this tab.'
+      : mode === 'photos'
+        ? 'These are this post\u2019s photos. Any videos listed above belong to other posts, not this one.'
+        : 'Could not tell which video this page is about, so the first few are shown. Opening the video on its own page usually makes it exact.';
     box.appendChild(note);
   }
 }

@@ -141,6 +141,37 @@ if (!photos.some(f => f.url.includes('realphoto'))) aFail.push('dropped the real
 });
 console.log(aFail.length ? 'FAIL: ' + aFail.join('; ') : 'Avatar filtering passed.');
 
+// Facebook's SPA keeps the previous post's payload in the DOM. Arriving at a
+// new video, the page therefore contains other posts' media and none of its
+// own - the exact state measured on a real tab (6 URLs, 0 belonging to the
+// post on screen). Offering those is how the wrong video gets downloaded.
+const STALE_A = '2222222222222222', STALE_B = '3333333333333333';
+const NOW = '1371563121002274';
+const staleSig = '?oh=00_Af&oe=68C0';
+const stalePayload = `
+{"video_id":"${STALE_A}","videoDeliveryResponseResult":{"progressive_urls":[
+ {"progressive_url":"https:\\/\\/scontent-lhr6-2.xx.fbcdn.net\\/o1\\/v\\/t2\\/f2\\/m69\\/OLDPOST${staleSig}","failure_reason":null,"metadata":{"quality":"SD"}}]}}
+${'.'.repeat(4000)}
+{"video_id":"${STALE_B}","videoDeliveryResponseResult":{"progressive_urls":[
+ {"progressive_url":"https:\\/\\/scontent-lhr6-2.xx.fbcdn.net\\/o1\\/v\\/t2\\/f2\\/m69\\/OLDER${staleSig}","failure_reason":null,"metadata":{"quality":"SD"}}]}}
+https://scontent-lhr6-2.xx.fbcdn.net/v/t39.30808-6/thispost_n.jpg?stp=dst-jpg_p2048x2048
+`;
+const staleOut = mod.extract(stalePayload, 'https://www.facebook.com/x/videos/pcb.999/' + NOW + '/');
+const staleVideos = staleOut.filter(f => f.kind === 'Video');
+console.log('\nstale SPA payload ->', staleVideos.length, 'videos present,',
+  staleVideos.filter(f => f.primary).length, 'claimed as this post');
+const stFail = [];
+if (!staleOut.targetKnown) stFail.push('targetKnown not set, so the page cannot tell it is missing');
+if (staleVideos.filter(f => f.primary).length !== 0) stFail.push('another post\u2019s video marked as this one');
+if (staleVideos.length !== 2) stFail.push('expected the 2 stale videos to still be listed as others');
+if (!staleOut.some(f => f.kind === 'Photo')) stFail.push('lost this post\u2019s photo');
+// And when the id IS present, it must still be found.
+const fresh = stalePayload.replace(STALE_A, NOW);
+const freshPrimary = mod.extract(fresh, 'https://www.facebook.com/x/videos/' + NOW + '/')
+  .filter(f => f.kind === 'Video' && f.primary);
+if (freshPrimary.length !== 1) stFail.push('failed to match the video when it IS this post');
+console.log(stFail.length ? 'FAIL: ' + stFail.join('; ') : 'Stale-SPA payload checks passed.');
+
 const found = mod.extract(fixture);
 console.log('video id ->', mod.videoId(fixture));
 console.log('found', found.length, 'items:');
