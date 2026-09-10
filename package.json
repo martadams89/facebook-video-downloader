@@ -1,6 +1,6 @@
 {
   "name": "facebook-video-downloader",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Cloudflare Worker serving a single plain page that saves the video or photo from a Facebook post as a file.",
   "license": "GPL-3.0-or-later",
