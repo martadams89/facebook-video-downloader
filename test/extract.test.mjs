@@ -47,6 +47,28 @@ if (nx.some(u => u.includes('rsrc.php'))) nxFail.push('picked up a static UI ass
 if (nx.some(u => u.startsWith('Photo'))) nxFail.push('classified a video as a photo');
 console.log(nxFail.length ? 'FAIL: ' + nxFail.join('; ') : 'Extension-less video checks passed.');
 
+// Current Facebook schema: progressive_urls[] with the quality label in a
+// metadata sibling AFTER the URL. The URLs are ~700-1100 chars, so a
+// lookahead measured from the match start never reaches the label.
+const longSig = '?stp=dst-mp4&_nc_cat=1&_nc_oc=' + 'Q1aBcD'.repeat(60) + '&oh=00_AfD&oe=68C0FFEE';
+const modern = `
+{"videoDeliveryResponseResult":{"progressive_urls":[
+ {"progressive_url":"https:\\/\\/scontent-lhr6-2.xx.fbcdn.net\\/o1\\/v\\/t2\\/f2\\/m69\\/LOWER${longSig}","failure_reason":null,"metadata":{"quality":"SD"}},
+ {"progressive_url":"https:\\/\\/scontent-lhr6-2.xx.fbcdn.net\\/o1\\/v\\/t2\\/f2\\/m69\\/HIGHER${longSig}","failure_reason":null,"metadata":{"quality":"HD"}}],
+ "dash_manifests":[{"manifest_xml":"\\u003C?xml version=\\"1.0\\"?>"}]},
+ "videoDeliveryLegacyFields":null}
+`.padEnd(300,' ');
+const mod2 = mod.extract(modern);
+console.log('\nmodern schema ->', mod2.length, 'found:', mod2.map(f => f.quality || '(unlabelled)').join(', '));
+const mFail = [];
+if (mod2.length !== 2) mFail.push('expected 2 videos, got ' + mod2.length);
+if (!mod2.every(f => f.kind === 'Video')) mFail.push('not all classified as video');
+if (mod2[0] && mod2[0].quality !== 'HD') mFail.push('HD did not sort first');
+if (!mod2.some(f => f.quality === 'SD')) mFail.push('SD label lost');
+if (mod2.some(f => f.url.includes('\\'))) mFail.push('escaped slashes left in URL');
+if (!mod2.every(f => f.url.length > 400)) mFail.push('URL truncated');
+console.log(mFail.length ? 'FAIL: ' + mFail.join('; ') : 'Modern-schema checks passed.');
+
 const found = mod.extract(fixture);
 console.log('video id ->', mod.videoId(fixture));
 console.log('found', found.length, 'items:');
