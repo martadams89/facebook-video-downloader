@@ -77,6 +77,7 @@
   .badge.bad{background:var(--bad-bg); color:var(--bad)}
   .spacer{flex:1}
   .thumb{width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid var(--line); background:var(--bg)}
+  .preview{width:170px; max-width:44vw; border-radius:6px; border:1px solid var(--line); background:#000}
   .name{flex:1; min-width:170px}
   .msg{padding:12px 14px; border-radius:8px; margin-bottom:14px; font-size:14px}
   .msg.bad{background:var(--bad-bg); color:var(--bad)}
@@ -287,14 +288,14 @@ function extract(html) {
   // HD first, then any other named quality, then SD, then unlabelled;
   // photos last. Facebook is not consistent about these labels, so anything
   // unrecognised still sorts sensibly rather than becoming NaN.
-  function rank(q) {
-    if (q === 'HD') return 0;
-    if (q === 'SD') return 2;
-    return q ? 1 : 3;
-  }
+  // Videos before photos, but otherwise source order is preserved (sort is
+  // stable). Facebook emits each video's variants together, so this keeps a
+  // clip's SD and HD next to each other instead of splitting them into an
+  // all-HD block and an all-SD block with no way to tell which pairs with
+  // which. It also puts SD first, which is the one that fits a Trello card.
   found.sort(function (a, b) {
     if (a.kind !== b.kind) return a.kind === 'Video' ? -1 : 1;
-    return rank(a.quality) - rank(b.quality);
+    return 0;
   });
   return found;
 }
@@ -375,6 +376,16 @@ function bytes(n) {
   return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
 }
 
+// Everything media goes through our own /dl rather than straight at
+// fbcdn: a cross-origin <video src="https://...fbcdn.net/..."> just stalls
+// (networkState 2, readyState 0, no error ever fired), whereas the proxy
+// sends a browser user-agent and passes range requests through, so
+// preload="metadata" fetches only the header it needs.
+function proxyUrl(u, name, inline) {
+  return '/dl?' + (inline ? 'inline=1&' : '') +
+    'u=' + encodeURIComponent(u) + '&name=' + encodeURIComponent(name);
+}
+
 function advise(el, text) {
   el.textContent = text;
   el.classList.remove('hide');
@@ -400,40 +411,86 @@ function render(found, id) {
   $('results').classList.remove('hide');
   $('setup').classList.add('hide');
 
-  var videoCount = found.filter(function (f) { return f.kind === 'Video'; }).length;
+  // A Facebook page carries far more than the post you are looking at:
+  // the suggestion rail, reels and autoplay neighbours all ship their own
+  // media. Showing every one of them at once is what made this unusable,
+  // so all but the first few start collapsed.
+  var INITIAL = 3;
+  var counters = { Video: 0, Photo: 0 };
+  var extras = [];
 
   found.forEach(function (item, i) {
     var isVideo = item.kind === 'Video';
-    // Only point her at a smaller option if one is actually on screen.
-    var hasSmaller = isVideo && item.quality === 'HD' && videoCount > 1;
+    var n = ++counters[item.kind];
     var ext = isVideo ? 'mp4' : 'jpg';
-    var suffix = item.quality ? '-' + item.quality.toLowerCase() : (found.length > 1 ? '-' + (i + 1) : '');
-    var filename = 'fb-' + id + suffix + '.' + ext;
+
+    // Every row needs its own name. Quality alone is not unique once a page
+    // has several videos - previously every row was offered the identical
+    // filename, so saving two in a row silently overwrote or confused them.
+    var filename = 'fb-' + id + '-' + n +
+      (item.quality ? '-' + item.quality.toLowerCase() : '') + '.' + ext;
 
     var el = document.createElement('div');
     el.className = 'item';
 
     var head = document.createElement('div');
     head.className = 'row';
-    if (!isVideo) {
+
+    if (isVideo) {
+      // A real, playable preview. Without this there is no way to tell one
+      // video from another, which is exactly how you end up downloading
+      // something completely different from what you wanted.
+      var prev = document.createElement('video');
+      prev.className = 'preview';
+      prev.src = proxyUrl(item.url, filename, true);
+      prev.preload = 'metadata';
+      prev.muted = true;
+      prev.playsInline = true;
+      prev.controls = true;
+      head.appendChild(prev);
+    } else {
       var thumb = document.createElement('img');
       thumb.className = 'thumb';
       thumb.src = item.url;
       thumb.alt = '';
       head.appendChild(thumb);
     }
-    var label = document.createElement('span');
+
+    var meta = document.createElement('div');
+    meta.style.flex = '1';
+    meta.style.minWidth = '0';
+
+    var label = document.createElement('div');
     label.className = 'label';
-    label.textContent = item.kind + (item.quality ? ' · ' + item.quality : '');
-    head.appendChild(label);
+    label.textContent = item.kind + ' ' + n + (item.quality ? ' \u00b7 ' + item.quality : '');
+    meta.appendChild(label);
+
+    var facts = document.createElement('div');
+    facts.className = 'row';
+    facts.style.gap = '8px';
     var size = document.createElement('span');
     size.className = 'hint';
-    size.textContent = 'checking size…';
-    head.appendChild(size);
+    size.textContent = 'checking size\u2026';
+    facts.appendChild(size);
+    var dur = document.createElement('span');
+    dur.className = 'hint';
+    facts.appendChild(dur);
     var badge = document.createElement('span');
     badge.className = 'badge hide';
-    head.appendChild(badge);
+    facts.appendChild(badge);
+    meta.appendChild(facts);
+    head.appendChild(meta);
     el.appendChild(head);
+
+    if (isVideo) {
+      prev.addEventListener('loadedmetadata', function () {
+        if (isFinite(prev.duration) && prev.duration > 0) {
+          var m = Math.floor(prev.duration / 60);
+          var sec = Math.round(prev.duration % 60);
+          dur.textContent = m + ':' + (sec < 10 ? '0' : '') + sec;
+        }
+      });
+    }
 
     var actions = document.createElement('div');
     actions.className = 'row';
@@ -447,51 +504,80 @@ function render(found, id) {
     dl.className = 'primary';
     dl.textContent = 'Download';
     dl.onclick = function () {
-      location.href = '/dl?u=' + encodeURIComponent(item.url) +
-        '&name=' + encodeURIComponent(nameInput.value || filename);
+      location.href = proxyUrl(item.url, nameInput.value || filename, false);
     };
     actions.appendChild(dl);
-
     el.appendChild(actions);
 
     var status = document.createElement('div');
     status.className = 'hint hide';
     el.appendChild(status);
-    var bar = document.createElement('div');
-    bar.className = 'bar hide';
-    var fill = document.createElement('i');
-    bar.appendChild(fill);
-    el.appendChild(bar);
 
     box.appendChild(el);
 
-    fetch('/probe?u=' + encodeURIComponent(item.url))
-      .then(function (r) { return r.json(); })
-      .then(function (info) {
-        if (!info.ok) {
-          size.textContent = 'link expired';
-          return;
-        }
-        if (info.size == null) { size.textContent = ''; return; }
-        size.textContent = bytes(info.size);
-        badge.classList.remove('hide');
-        if (info.size <= TRELLO_FREE) {
-          badge.className = 'badge ok';
-          badge.textContent = 'Fits Trello';
-        } else if (info.size <= TRELLO_PAID) {
-          badge.className = 'badge warn';
-          badge.textContent = 'Over Trello Free\u2019s 10 MB';
-          advise(status, hasSmaller
-            ? 'Too big for a free Trello card. The SD version below is smaller \u2014 try that one.'
-            : 'Too big for a free Trello card (paid plans allow 250 MB). Put a link on the card instead, or trim the clip first.');
-        } else {
-          badge.className = 'badge bad';
-          badge.textContent = 'Too big for Trello';
-          advise(status, 'Over Trello\u2019s 250 MB limit even on paid plans \u2014 put a link on the card instead.');
-        }
-      })
-      .catch(function () { size.textContent = ''; });
+    // Only measure what is on screen: a feed page can carry dozens of
+    // entries, and probing them all would fire dozens of requests for
+    // files nobody asked about.
+    var probed = false;
+    function probe() {
+      if (probed) return;
+      probed = true;
+      fetch('/probe?u=' + encodeURIComponent(item.url))
+        .then(function (r) { return r.json(); })
+        .then(function (info) {
+          if (!info.ok) { size.textContent = 'link expired'; return; }
+          if (info.size == null) { size.textContent = ''; return; }
+          size.textContent = bytes(info.size);
+          badge.classList.remove('hide');
+          if (info.size <= TRELLO_FREE) {
+            badge.className = 'badge ok';
+            badge.textContent = 'Fits Trello';
+          } else if (info.size <= TRELLO_PAID) {
+            badge.className = 'badge warn';
+            badge.textContent = 'Over Trello Free\u2019s 10 MB';
+            advise(status, 'Too big for a free Trello card (paid plans allow 250 MB). Try an SD version if one is listed, or put a link on the card instead.');
+          } else {
+            badge.className = 'badge bad';
+            badge.textContent = 'Too big for Trello';
+            advise(status, 'Over Trello\u2019s 250 MB limit even on paid plans \u2014 put a link on the card instead.');
+          }
+        })
+        .catch(function () { size.textContent = ''; });
+    }
+
+    if (i < INITIAL) {
+      probe();
+    } else {
+      el.classList.add('hide');
+      // Defer the preview fetch too, not just the size check.
+      if (isVideo) { prev.removeAttribute('src'); prev.preload = 'none'; }
+      extras.push({
+        el: el, probe: probe,
+        video: isVideo ? prev : null,
+        src: isVideo ? proxyUrl(item.url, filename, true) : null,
+      });
+    }
   });
+
+  if (extras.length) {
+    var more = document.createElement('button');
+    more.style.marginTop = '4px';
+    more.textContent = 'Show ' + extras.length + ' more found on that page';
+    more.onclick = function () {
+      extras.forEach(function (x) {
+        x.el.classList.remove('hide');
+        if (x.video) { x.video.preload = 'metadata'; x.video.src = x.src; }
+        x.probe();
+      });
+      more.remove();
+    };
+    box.appendChild(more);
+
+    var note = document.createElement('p');
+    note.className = 'hint';
+    note.textContent = 'The first entries are usually the post you opened. The rest are other videos Facebook loaded on the same page \u2014 suggestions, reels and autoplay neighbours.';
+    box.appendChild(note);
+  }
 }
 
 /* ---------- fallbacks ---------- */

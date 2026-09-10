@@ -63,7 +63,9 @@ console.log('\nmodern schema ->', mod2.length, 'found:', mod2.map(f => f.quality
 const mFail = [];
 if (mod2.length !== 2) mFail.push('expected 2 videos, got ' + mod2.length);
 if (!mod2.every(f => f.kind === 'Video')) mFail.push('not all classified as video');
-if (mod2[0] && mod2[0].quality !== 'HD') mFail.push('HD did not sort first');
+// Source order is deliberate: variants of one clip stay adjacent, and SD
+// (the Trello-sized one) comes first.
+if (mod2[0] && mod2[0].quality !== 'SD') mFail.push('source order not preserved');
 if (!mod2.some(f => f.quality === 'SD')) mFail.push('SD label lost');
 if (mod2.some(f => f.url.includes('\\'))) mFail.push('escaped slashes left in URL');
 if (!mod2.every(f => f.url.length > 400)) mFail.push('URL truncated');
@@ -103,6 +105,6 @@ if (urls.some(u => u.includes('\\/'))) fail.push('left escaped slashes');
 if (!urls.some(u => u.includes('bigphoto_n.jpg'))) fail.push('missed the full-size photo');
 // The same file signed twice must collapse to one row.
 if (urls.filter(u => u.includes('aaa_n.mp4')).length !== 1) fail.push('duplicate of aaa_n.mp4');
-if (found[0].quality !== 'HD') fail.push('HD not sorted first');
+if (found[0].kind !== 'Video') fail.push('videos not sorted before photos');
 
 console.log(fail.length ? '\nFAIL: ' + fail.join('; ') : '\nAll extractor checks passed.');

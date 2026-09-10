@@ -97,7 +97,14 @@ on the zone, and caps input at 40 MB.
   else, and nothing is ever assigned as HTML.
 - CSP is `default-src 'none'` with no third-party origins at all.
 - `noindex` plus a disallow-all `robots.txt`.
-- Nothing is logged or persisted — no KV, no D1, no R2.
+- Nothing is stored or shared. There is no KV, D1, R2, database or session:
+  the page holds results only in the browser tab that produced them, so
+  opening the same URL on another machine shows an empty page. The payload
+  travels from the Facebook tab to the results page by `postMessage` inside
+  the one browser and never reaches the Worker at all.
+- Workers observability is switched off, because request URLs carry the
+  signed media link as a query parameter and would otherwise be retained in
+  invocation logs.
 
 Because the page is public, consider putting it on an unguessable hostname, or
 behind Cloudflare Access to restrict it to named people.

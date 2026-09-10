@@ -2,7 +2,10 @@
   "name": "media-saver",
   "main": "src/index.js",
   "compatibility_date": "2026-09-01",
-  "observability": { "enabled": true },
+  // Deliberately off. Request URLs carry the signed media link as a query
+  // parameter, so invocation logs would retain pointers to someone's private
+  // group content. Turn it on temporarily if you need to debug.
+  "observability": { "enabled": false },
   "rules": [
     { "type": "Text", "globs": ["**/*.html"], "fallthrough": false }
   ]
