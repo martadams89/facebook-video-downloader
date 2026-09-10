@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.7](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.6...v0.2.7) (2026-09-10)
+
+
+### 🐛 Bug Fixes
+
+* reload the post when Facebook never delivered its video ([6e911f8](https://github.com/martadams89/facebook-video-downloader/commit/6e911f8ca651fa0f8962071470d24efe349e4ef1))
+
 ## [0.2.6](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.5...v0.2.6) (2026-09-10)
 
 
