@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.8](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.7...v0.2.8) (2026-09-11)
+
+
+### 🧹 Maintenance
+
+* **deps:** update renovatebot/github-action action to v46.2.6 ([#4](https://github.com/martadams89/facebook-video-downloader/issues/4)) ([12d7ff4](https://github.com/martadams89/facebook-video-downloader/commit/12d7ff4534966c7b2e9f7f973ab8cfdc58a5c314))
+
 ## [0.2.7](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.6...v0.2.7) (2026-09-10)
 
 
