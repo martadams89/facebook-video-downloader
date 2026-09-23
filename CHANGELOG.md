@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.21](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.20...v0.2.21) (2026-09-23)
+
+
+### 🧹 Maintenance
+
+* **deps:** update dependency wrangler to ^4.136.3 ([#37](https://github.com/martadams89/facebook-video-downloader/issues/37)) ([971cb62](https://github.com/martadams89/facebook-video-downloader/commit/971cb62c16b98a7a6f4b3d9c2bb826af46cc412d))
+
 ## [0.2.20](https://github.com/martadams89/facebook-video-downloader/compare/v0.2.19...v0.2.20) (2026-09-23)
 
 
